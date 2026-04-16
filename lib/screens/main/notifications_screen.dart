@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../constants/app_theme.dart';
 import '../../providers/notification_provider.dart';
+import '../../models/notification_model.dart';
 import '../../widgets/common_widgets.dart';
 
 class NotificationsScreen extends StatelessWidget {

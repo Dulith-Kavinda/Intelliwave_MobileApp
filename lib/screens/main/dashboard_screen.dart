@@ -14,9 +14,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  int _averageHeartRate = 0;
-  int _maxHeartRate = 0;
-  int _minHeartRate = 0;
+
   final List<FlSpot> _chartData = [];
 
   @override

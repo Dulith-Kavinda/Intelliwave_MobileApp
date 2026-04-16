@@ -54,14 +54,6 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() => _selectedIndex = index);
         },
       ),
-      floatingActionButton: _selectedIndex == 0
-          ? FloatingActionButton(
-              onPressed: () {
-                Navigator.pushNamed(context, '/settings');
-              },
-              child: const Icon(Icons.settings),
-            )
-          : null,
     );
   }
 }

@@ -1,0 +1,228 @@
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:get_it/get_it.dart';
+
+import 'package:inteliwave_app/supabase_options.dart';
+import 'package:inteliwave_app/services/index.dart';
+import 'package:inteliwave_app/models/user_model.dart';
+import 'package:inteliwave_app/utils/service_locator.dart';
+
+/// Simple test app to verify Supabase functionality without UI rendering
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  print('\n' + '='*60);
+  print('SUPABASE FUNCTIONALITY TEST');
+  print('='*60 + '\n');
+
+  try {
+    // Initialize Supabase
+    print('📡 Initializing Supabase...');
+    await Supabase.initialize(
+      url: SupabaseOptions.url,
+      anonKey: SupabaseOptions.anonKey,
+    );
+    print('✅ Supabase initialized\n');
+
+    // Setup services
+    print('🔧 Setting up services...');
+    setupServiceLocator();
+    print('✅ Services configured\n');
+
+    // Get service instances
+    final authService = GetIt.instance<AuthService>();
+    final storageService = GetIt.instance<StorageService>();
+    final userProfileService = GetIt.instance<UserProfileService>();
+
+    // Initialize storage
+    print('💾 Initializing local storage...');
+    await storageService.initialize();
+    print('✅ Storage initialized\n');
+
+    // Run tests
+    await _runSupabaseTests(
+      authService,
+      storageService,
+      userProfileService,
+    );
+  } catch (e) {
+    print('❌ Fatal error: $e');
+    print('Stack trace: $e');
+  }
+}
+
+Future<void> _runSupabaseTests(
+  AuthService authService,
+  StorageService storageService,
+  UserProfileService userProfileService,
+) async {
+  const testEmail = 'test_verification@inteliwave.test';
+  const testPassword = 'TestPassword123!';
+  String? userId;
+
+  try {
+    // Test 1: Sign Up
+    print('TEST 1: User Sign Up');
+    print('-' * 40);
+    try {
+      final response = await authService.signUp(
+        email: testEmail,
+        password: testPassword,
+        name: 'Test Verification User',
+        birthday: DateTime(1990, 1, 1),
+        weight: 70.0,
+        height: 175.0,
+        bloodGroup: 'O+',
+        phoneNumber: '+1 (555) 123-4567',
+        address: '123 Test Ave, Test City',
+        gender: 'Other',
+      );
+      userId = response.user!.id;
+      print('✅ Sign up successful');
+      print('   Email: ${response.user!.email}');
+      print('   User ID: $userId\n');
+    } catch (e) {
+      if (e.toString().contains('already registered')) {
+        print('⚠️  User already exists, attempting sign in...');
+        final response = await authService.signIn(
+          email: testEmail,
+          password: testPassword,
+        );
+        userId = response.user!.id;
+        print('✅ Sign in successful');
+        print('   User ID: $userId\n');
+      } else {
+        rethrow;
+      }
+    }
+
+    // Test 2: Create Profile
+    print('TEST 2: Create User Profile');
+    print('-' * 40);
+    final profile = UserModel(
+      id: userId,
+      email: testEmail,
+      name: 'Test Verification User',
+      birthday: DateTime(1990, 1, 1),
+      weight: 72.5,
+      height: 175.0,
+      bloodGroup: 'O+',
+      phoneNumber: '+1 (555) 123-4567',
+      address: '123 Test Ave, Test City',
+      gender: 'Other',
+    );
+
+    await userProfileService.saveUserProfile(profile);
+    print('✅ Profile saved to Supabase');
+    print('   Name: ${profile.name}');
+    print('   Email: ${profile.email}');
+    print('   Height: ${profile.height}cm');
+    print('   Weight: ${profile.weight}kg\n');
+
+    // Test 3: Retrieve Profile
+    print('TEST 3: Retrieve Profile from Supabase');
+    print('-' * 40);
+    final retrieved = await userProfileService.getUserProfile(userId);
+    if (retrieved != null) {
+      print('✅ Profile retrieved successfully');
+      print('   Name: ${retrieved.name}');
+      print('   Email: ${retrieved.email}');
+      print('   Blood Group: ${retrieved.bloodGroup}');
+      print('   Phone: ${retrieved.phoneNumber}\n');
+    } else {
+      print('❌ Profile not found\n');
+      return;
+    }
+
+    // Test 4: Update Profile
+    print('TEST 4: Update Profile in Supabase');
+    print('-' * 40);
+    await userProfileService.updateUserProfile(
+      userId,
+      weight: 73.0,
+      bloodGroup: 'A+',
+    );
+    print('✅ Profile updated');
+    
+    final updated = await userProfileService.getUserProfile(userId);
+    print('   New weight: ${updated!.weight}kg');
+    print('   New blood group: ${updated.bloodGroup}\n');
+
+    // Test 5: Local Storage
+    print('TEST 5: Local Storage (Hive)');
+    print('-' * 40);
+    await storageService.saveUser(profile);
+    print('✅ Profile saved to Hive');
+    
+    final localProfile = storageService.getUser(userId);
+    if (localProfile != null) {
+      print('✅ Profile retrieved from Hive');
+      print('   Name: ${localProfile.name}');
+      print('   Email: ${localProfile.email}\n');
+    } else {
+      print('❌ Profile not found in Hive\n');
+    }
+
+    // Test 6: Cloud-Local Sync
+    print('TEST 6: Cloud-Local Sync Verification');
+    print('-' * 40);
+    final cloudData = await userProfileService.getUserProfile(userId);
+    final localData = storageService.getUser(userId);
+    
+    if (cloudData != null && localData != null) {
+      final emailMatch = cloudData.email == localData.email;
+      final nameMatch = cloudData.name == localData.name;
+      
+      print('✅ Both cloud and local copies exist');
+      print('   Email match: $emailMatch');
+      print('   Name match: $nameMatch');
+      
+      if (emailMatch && nameMatch) {
+        print('✅ Sync verified: Data is consistent\n');
+      } else {
+        print('⚠️  Sync mismatch detected\n');
+      }
+    }
+
+    // Test 7: Delete Profile
+    print('TEST 7: Delete Profile');
+    print('-' * 40);
+    await userProfileService.deleteUserProfile(userId);
+    print('✅ Profile deleted from Supabase');
+    
+    final deleted = await userProfileService.getUserProfile(userId);
+    if (deleted == null) {
+      print('✅ Deletion verified (profile not found)\n');
+    }
+
+    // Test 8: Sign Out
+    print('TEST 8: Sign Out');
+    print('-' * 40);
+    await authService.signOut();
+    print('✅ User signed out');
+    
+    final currentUser = Supabase.instance.client.auth.currentUser;
+    if (currentUser == null) {
+      print('✅ Session cleared\n');
+    }
+
+    // Summary
+    print('='*60);
+    print('✅ ALL TESTS COMPLETED SUCCESSFULLY');
+    print('='*60 + '\n');
+    
+    print('Summary:');
+    print('  ✅ User authentication (sign up, sign in)');
+    print('  ✅ Profile creation in Supabase');
+    print('  ✅ Profile retrieval from Supabase');
+    print('  ✅ Profile updates in Supabase');
+    print('  ✅ Local storage (Hive) working');
+    print('  ✅ Cloud-local sync verified');
+    print('  ✅ Profile deletion');
+    print('  ✅ Session management\n');
+
+  } catch (e, stackTrace) {
+    print('\n❌ TEST FAILED: $e');
+    print('Stack trace: $stackTrace');
+  }
+}

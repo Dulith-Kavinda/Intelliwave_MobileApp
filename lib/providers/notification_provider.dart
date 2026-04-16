@@ -110,7 +110,8 @@ class NotificationProvider extends ChangeNotifier {
             'created_at': notification.timestamp.toIso8601String(),
           });
     } catch (e) {
-      print('Error pushing notification to cloud: $e');
+      // Logging disabled for performance
+      // print('Error pushing notification to cloud: $e');
       // Continue silently - cloud sync is not critical
     }
   }
@@ -154,7 +155,8 @@ class NotificationProvider extends ChangeNotifier {
           )
           .subscribe();
     } catch (e) {
-      print('Error subscribing to realtime notifications: $e');
+      // Logging disabled for performance
+      // print('Error subscribing to realtime notifications: $e');
     }
   }
 
@@ -175,7 +177,8 @@ class NotificationProvider extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      print('Error handling realtime notification: $e');
+      // Logging disabled for performance
+      // print('Error handling realtime notification: $e');
     }
   }
 
@@ -197,7 +200,8 @@ class NotificationProvider extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      print('Error handling realtime update: $e');
+      // Logging disabled for performance
+      // print('Error handling realtime update: $e');
     }
   }
 
@@ -230,7 +234,8 @@ class NotificationProvider extends ChangeNotifier {
           .update({'is_read': true})
           .eq('id', notificationId);
     } catch (e) {
-      print('Error syncing read status to cloud: $e');
+      // Logging disabled for performance
+      // print('Error syncing read status to cloud: $e');
     }
   }
 

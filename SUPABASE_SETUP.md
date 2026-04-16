@@ -51,14 +51,82 @@ This guide explains how to set up Supabase for IntelIWave with a **mobile-first 
 
 ## Database Schema
 
-Inteliwave stores **ONLY notifications** in the Supabase cloud database for backup and cross-device access. All user health data, device information, and session data remain **exclusively on the user's mobile device** in Hive for privacy, performance, and offline-first experience.
+Inteliwave uses the Supabase cloud database for user profile data and notifications:
+- ✅ **User Profiles**: Stored in Supabase for backup, recovery, and cross-device access
+- ✅ **Notifications**: Stored in Supabase for real-time sync across devices
+- ✅ **Heart Rate Data**: Stored LOCALLY on mobile (Hive) for privacy
+- ✅ **Bluetooth Devices**: Stored LOCALLY on mobile (Hive)
+- ✅ **Timed Sessions**: Stored LOCALLY on mobile (Hive)
+
+### Create Users Table
+
+Go to **Supabase Console → SQL Editor** and run:
+
+```sql
+-- Create users table for storing user profiles
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email VARCHAR NOT NULL UNIQUE,
+  name VARCHAR NOT NULL,
+  birthday TIMESTAMP NOT NULL,
+  weight NUMERIC,
+  height NUMERIC,
+  blood_group VARCHAR,
+  phone_number VARCHAR,
+  profile_picture_url VARCHAR,
+  address VARCHAR,
+  gender VARCHAR,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Create indexes for faster queries
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at DESC);
+
+-- Enable Row Level Security
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies: Users can only see and update their own profile
+CREATE POLICY "Users can view own profile" ON users
+  FOR SELECT USING (auth.uid()::text = id);
+
+CREATE POLICY "Users can insert own profile" ON users
+  FOR INSERT WITH CHECK (auth.uid()::text = id);
+
+CREATE POLICY "Users can update own profile" ON users
+  FOR UPDATE USING (auth.uid()::text = id);
+
+CREATE POLICY "Users can delete own profile" ON users
+  FOR DELETE USING (auth.uid()::text = id);
+
+-- Create storage bucket for profile pictures
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('profile_pictures', 'profile_pictures', true)
+ON CONFLICT DO NOTHING;
+
+-- RLS Policy for profile pictures storage
+CREATE POLICY "Users can upload their own profile picture" ON storage.objects
+  FOR INSERT WITH CHECK (bucket_id = 'profile_pictures' AND (storage.foldername(name))[1] = auth.uid()::text);
+
+CREATE POLICY "Users can update their own profile picture" ON storage.objects
+  FOR UPDATE USING (bucket_id = 'profile_pictures' AND (storage.foldername(name))[1] = auth.uid()::text);
+
+CREATE POLICY "Users can delete their own profile picture" ON storage.objects
+  FOR DELETE USING (bucket_id = 'profile_pictures' AND (storage.foldername(name))[1] = auth.uid()::text);
+
+CREATE POLICY "Profile pictures are publicly readable" ON storage.objects
+  FOR SELECT USING (bucket_id = 'profile_pictures');
+```
+
+**Note**: The `users` table links to Supabase Auth via the `id` column, which matches the authenticated user's UID.
 
 ### Create Notifications Table
 
 Go to **Supabase Console → SQL Editor** and run:
 
 ```sql
--- Create notifications table (the only required cloud table)
+-- Create notifications table (for real-time sync)
 CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
@@ -96,9 +164,33 @@ CREATE POLICY "Users can delete own notifications" ON notifications
 ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
 ```
 
+### Why Store User Profiles in Cloud?
+
+**Cloud Storage (Supabase)** advantages:
+- ✅ **Backup**: User profiles preserved if app is uninstalled
+- ✅ **Recovery**: Users can access their data from any device
+- ✅ **Sync**: Profile updates sync across devices
+- ✅ **Security**: RLS ensures users can only access their own data
+- ✅ **Reliability**: Automatic backups by Supabase
+
+**Local Storage (Hive)** benefits retained:
+- ✅ **Offline**: Profile available without internet
+- ✅ **Privacy**: Health data stays on device (except profile metadata)
+- ✅ **Performance**: Instant local access
+
+### Data Storage Reference
+
+| Component | Primary Storage | Backup | Sync | Offline |
+|-----------|---------|---------|------|---------|
+| **User Profile** | Supabase + Hive (Local) | ✅ Auto | ✅ Yes | ✅ Yes |
+| **Heart Rate Data** | Hive (Local) | None | None | ✅ Yes |
+| **Bluetooth Devices** | Hive (Local) | None | None | ✅ Yes |
+| **Session History** | Hive (Local) | None | None | ✅ Yes |
+| **Notifications** | Hive (Local) + Supabase | ✅ Auto | ✅ Yes | ✅ Yes |
+
 ### Why Only Notifications in Cloud?
 
-**Local Storage (Hive)** advantages for user data:
+**Local Storage (Hive)** advantages for health data:
 - ✅ **Faster**: No network latency, instant access
 - ✅ **Offline**: All features work without internet
 - ✅ **Privacy**: Personal health data stays on device
@@ -111,21 +203,11 @@ ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
 - ✅ **Real-time**: Sync notifications across devices instantly
 - ✅ **Server-sent**: Backend can trigger important notifications
 
-### Data Storage Reference
-
-| Component | Storage | Sync | Offline |
-|-----------|---------|------|---------|
-| **User Profile** | Hive (Local) | None | ✅ Yes |
-| **Heart Rate Data** | Hive (Local) | None | ✅ Yes |
-| **Bluetooth Devices** | Hive (Local) | None | ✅ Yes |
-| **Session History** | Hive (Local) | None | ✅ Yes |
-| **Notifications** | Hive (Local) + Supabase | Auto sync | ✅ Yes |
-
 ---
 
 ## Authentication Setup
 
-Supabase handles user authentication using email/password and Google Sign-In. User profile data is NOT stored in Supabase database—only authentication tokens are used.
+Supabase handles user authentication using email/password and Google Sign-In. User profile data is automatically stored in the `users` table in Supabase for backup and backup across devices.
 
 ### Enable Email/Password Authentication
 
@@ -155,43 +237,65 @@ Supabase handles user authentication using email/password and Google Sign-In. Us
    - User profile saved **LOCALLY** in Hive only (not in Supabase)
    - App stores JWT in secure storage
 
-2. **User Signs In**:
+2. **User Signs Up**:
+   - Email/password sent to Supabase Auth
+   - Supabase creates user and returns JWT token
+   - App creates user profile and saves to **both Supabase + local Hive**
+   - Profile is now backed up and accessible from any device
+
+3. **User Signs In**:
    - Email/password sent to Supabase Auth
    - Supabase returns JWT token
-   - App loads user profile from **local Hive** (not from cloud)
-   - User profile syncs if missing locally
+   - App tries to load user profile from **Supabase first**
+   - If found in Supabase, syncs to local Hive
+   - If only in local Hive, uploads to Supabase
+   - User can access profile offline from local copy
 
-3. **User Changes Profile**:
-   - Changes saved to **local Hive only** (no Supabase sync)
-   - No network call required
+4. **User Updates Profile**:
+   - Changes saved to **both Supabase + local Hive**
+   - If offline, changes saved to local Hive first
+   - Changes automatically sync to Supabase when online
 
-4. **User Logs Out**:
+5. **User Logs Out**:
    - JWT token cleared
    - Local Hive data remains (can be viewed offline)
    - User must re-login to access account
 
+6. **User Deletes Account**:
+   - Profile deleted from **both Supabase + local Hive**
+   - Auth user also deleted from Supabase Auth
+
 ### Authentication Code Flow
 
 ```dart
-// Sign Up: Create auth user, save profile LOCALLY
+// Sign Up: Create auth user, save profile to BOTH cloud + local
 Future<void> signUp({
   required String email,
   required String password,
-  required String fullName,
+  required String name,
+  required DateTime birthday,
+  // ... other profile fields
 }) async {
   // Auth with Supabase
   final response = await _authService.signUpWithEmail(email, password);
   
-  // Save profile LOCALLY ONLY
+  // Create and save profile to BOTH locations
   final userModel = UserModel(
     uid: response.user!.id,
     email: email,
-    fullName: fullName,
+    name: name,
+    birthday: birthday,
+    // ... other profile fields
   );
+  
+  // Save to Supabase (cloud backup)
+  await _userProfileService.saveUserProfile(userModel);
+  
+  // Save to local Hive (offline access)
   await _storageService.saveUser(userModel);
 }
 
-// Sign In: Auth with Supabase, load profile from LOCAL
+// Sign In: Auth with Supabase, sync profile cloud ↔ local
 Future<void> signIn({
   required String email,
   required String password,
@@ -199,21 +303,29 @@ Future<void> signIn({
   // Auth with Supabase
   final response = await _authService.signInWithEmail(email, password);
   
-  // Load profile from LOCAL Hive
-  final userModel = await _storageService.getUser(response.user!.id);
+  // Try to load profile from Supabase first
+  var userModel = await _userProfileService.getUserProfile(response.user!.id);
   
-  // If missing, create from auth response
+  // If not found in Supabase, check local Hive
   if (userModel == null) {
-    await _storageService.saveUser(UserModel(
-      uid: response.user!.id,
-      email: response.user!.email!,
-    ));
+    userModel = _storageService.getUser(response.user!.id);
+    
+    // If found only locally, sync to Supabase
+    if (userModel != null) {
+      await _userProfileService.saveUserProfile(userModel);
+    }
+  } else {
+    // Found in Supabase, sync to local Hive
+    await _storageService.saveUser(userModel);
   }
 }
 
-// Update Profile: Save to LOCAL Hive only
+// Update Profile: Save to BOTH Supabase and local Hive
 Future<void> updateProfile(UserModel userModel) async {
-  // NO Supabase sync - purely local
+  // Save to Supabase (cloud backup)
+  await _userProfileService.saveUserProfile(userModel);
+  
+  // Save to local Hive (offline access)
   await _storageService.saveUser(userModel);
 }
 ```

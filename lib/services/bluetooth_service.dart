@@ -4,7 +4,6 @@ import '../models/bluetooth_device_model.dart';
 import 'dart:async';
 
 class BluetoothService {
-  late FlutterBluePlus flutterBlue;
   final StreamController<BluetoothDeviceModel> _deviceController =
       StreamController<BluetoothDeviceModel>.broadcast();
   final StreamController<int> _heartRateController =
@@ -16,33 +15,31 @@ class BluetoothService {
   List<BluetoothDeviceModel> _connectedDevices = [];
   BluetoothDeviceModel? _currentDevice;
 
-  BluetoothService() {
-    flutterBlue = FlutterBluePlus.instance;
-  }
-
   Future<void> initialize() async {
     // Request permissions
     await _requestPermissions();
   }
 
   Future<void> _requestPermissions() async {
-    final status = await [
+    final statuses = await [
       Permission.bluetooth,
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.location,
     ].request();
 
-    if (status.isGranted) {
+    // Check if all permissions are granted
+    bool allGranted = statuses.values.every((status) => status.isGranted);
+    if (allGranted) {
       // Permissions granted
     }
   }
 
   Future<void> startScan() async {
     try {
-      flutterBlue.startScan(timeout: const Duration(seconds: 10));
+      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
 
-      flutterBlue.scanResults.listen((results) {
+      FlutterBluePlus.scanResults.listen((results) {
         for (ScanResult result in results) {
           if (result.device.platformName.isNotEmpty &&
               (result.device.platformName.toLowerCase().contains('heart') ||
@@ -70,7 +67,7 @@ class BluetoothService {
 
   Future<void> stopScan() async {
     try {
-      await flutterBlue.stopScan();
+      await FlutterBluePlus.stopScan();
     } catch (e) {
       throw Exception('Failed to stop scan: $e');
     }
@@ -78,17 +75,13 @@ class BluetoothService {
 
   Future<void> connectToDevice(BluetoothDeviceModel device) async {
     try {
-      final bluetoothDevice = BluetoothDevice(id: DeviceIdentifier(device.id));
+      final bluetoothDevice = BluetoothDevice(remoteId: DeviceIdentifier(device.id));
 
       await bluetoothDevice.connect();
 
-      _currentDevice = device.copyWith(
-        isConnected: true,
-        lastConnected: DateTime.now(),
-      );
+      _currentDevice = device;
 
-      _connectedDevices.add(_currentDevice!);
-      _deviceController.add(_currentDevice!);
+      _deviceController.add(device);
 
       // Discover services
       await _discoverServices(bluetoothDevice);
@@ -100,14 +93,10 @@ class BluetoothService {
   Future<void> disconnectDevice() async {
     if (_currentDevice != null) {
       try {
-        final bluetoothDevice =
-            BluetoothDevice(id: DeviceIdentifier(_currentDevice!.id));
+        final bluetoothDevice = BluetoothDevice(remoteId: DeviceIdentifier(_currentDevice!.id));
         await bluetoothDevice.disconnect();
 
-        _currentDevice = _currentDevice!.copyWith(isConnected: false);
-        _deviceController.add(_currentDevice!);
-
-        _connectedDevices.removeWhere((d) => d.id == _currentDevice!.id);
+        _currentDevice = null;
       } catch (e) {
         throw Exception('Disconnection failed: $e');
       }

@@ -42,9 +42,13 @@ class AuthService {
       final GoogleSignInAuthentication googleAuth =
           await googleUser.authentication;
 
+      if (googleAuth.idToken == null) {
+        throw Exception('Failed to get Google ID token');
+      }
+
       return await _supabase.auth.signInWithIdToken(
         provider: OAuthProvider.google,
-        idToken: googleAuth.idToken,
+        idToken: googleAuth.idToken!,
         accessToken: googleAuth.accessToken,
       );
     } on AuthException catch (e) {
@@ -88,6 +92,14 @@ class AuthService {
   }
 
   String _handleAuthException(AuthException e) {
+    // Check for rate limit or too many requests
+    if (e.message.toLowerCase().contains('rate') || 
+        e.message.toLowerCase().contains('too many') ||
+        e.code == 'over_email_send_rate_limit' ||
+        e.code == 'over_request_rate_limit') {
+      return 'Too many login attempts. Please wait a few minutes before trying again.';
+    }
+    
     switch (e.code) {
       case 'weak_password':
         return 'The password provided is too weak.';

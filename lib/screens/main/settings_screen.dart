@@ -27,6 +27,18 @@ class SettingsScreen extends StatelessWidget {
             const SizedBox(height: 12),
             Consumer<SettingsProvider>(
               builder: (context, settingsProvider, _) {
+                String themeName = 'System';
+                switch (settingsProvider.themeMode) {
+                  case ThemeMode.light:
+                    themeName = 'Light';
+                    break;
+                  case ThemeMode.dark:
+                    themeName = 'Dark';
+                    break;
+                  case ThemeMode.system:
+                    themeName = 'System';
+                    break;
+                }
                 return Card(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
@@ -34,7 +46,7 @@ class SettingsScreen extends StatelessWidget {
                       children: [
                         _SettingsTile(
                           title: 'Theme',
-                          subtitle: settingsProvider.theme.toUpperCase(),
+                          subtitle: themeName,
                           icon: Icons.palette,
                           onTap: () => _showThemeDialog(context, settingsProvider),
                         ),
@@ -149,19 +161,41 @@ class SettingsScreen extends StatelessWidget {
         title: const Text('Select Theme'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: ['light', 'dark', 'system'].map((theme) {
-            return RadioListTile(
-              title: Text(theme.toUpperCase()),
-              value: theme,
-              groupValue: settingsProvider.theme,
+          children: [
+            RadioListTile<ThemeMode>(
+              title: const Text('Light'),
+              value: ThemeMode.light,
+              groupValue: settingsProvider.themeMode,
               onChanged: (value) {
                 if (value != null) {
-                  settingsProvider.setTheme(value);
+                  settingsProvider.setThemeMode(value);
                   Navigator.pop(context);
                 }
               },
-            );
-          }).toList(),
+            ),
+            RadioListTile<ThemeMode>(
+              title: const Text('Dark'),
+              value: ThemeMode.dark,
+              groupValue: settingsProvider.themeMode,
+              onChanged: (value) {
+                if (value != null) {
+                  settingsProvider.setThemeMode(value);
+                  Navigator.pop(context);
+                }
+              },
+            ),
+            RadioListTile<ThemeMode>(
+              title: const Text('System'),
+              value: ThemeMode.system,
+              groupValue: settingsProvider.themeMode,
+              onChanged: (value) {
+                if (value != null) {
+                  settingsProvider.setThemeMode(value);
+                  Navigator.pop(context);
+                }
+              },
+            ),
+          ],
         ),
       ),
     );

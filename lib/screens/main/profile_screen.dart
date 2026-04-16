@@ -34,6 +34,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
+  void _openSettings(BuildContext context) {
+    Navigator.pushNamed(context, '/settings');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -41,6 +45,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: const Text('Profile'),
         elevation: 0,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () => _openSettings(context),
+          ),
           IconButton(
             icon: Icon(_isEditing ? Icons.done : Icons.edit),
             onPressed: () {
