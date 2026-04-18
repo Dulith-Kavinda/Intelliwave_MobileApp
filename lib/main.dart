@@ -45,6 +45,9 @@ class MyApp extends StatelessWidget {
           create: (_) => BluetoothProvider(bluetoothService),
         ),
         ChangeNotifierProvider(
+          create: (_) => ECGProvider(bluetoothService),
+        ),
+        ChangeNotifierProvider(
           create: (_) => HeartbeatProvider(storageService),
         ),
         ChangeNotifierProvider(

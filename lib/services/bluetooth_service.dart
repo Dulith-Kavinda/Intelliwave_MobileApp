@@ -8,12 +8,22 @@ class BluetoothService {
       StreamController<BluetoothDeviceModel>.broadcast();
   final StreamController<int> _heartRateController =
       StreamController<int>.broadcast();
+  final StreamController<List<int>> _ecgDataController =
+      StreamController<List<int>>.broadcast();
+  final StreamController<bool> _connectionStatusController =
+      StreamController<bool>.broadcast();
+  final StreamController<String> _ecgErrorController =
+      StreamController<String>.broadcast();
 
   Stream<BluetoothDeviceModel> get deviceStream => _deviceController.stream;
   Stream<int> get heartRateStream => _heartRateController.stream;
+  Stream<List<int>> get ecgDataStream => _ecgDataController.stream;
+  Stream<bool> get connectionStatusStream => _connectionStatusController.stream;
+  Stream<String> get ecgErrorStream => _ecgErrorController.stream;
 
   List<BluetoothDeviceModel> _connectedDevices = [];
   BluetoothDeviceModel? _currentDevice;
+  StreamSubscription? _ecgCharacteristicSubscription;
 
   Future<void> initialize() async {
     // Request permissions
@@ -83,9 +93,14 @@ class BluetoothService {
 
       _deviceController.add(device);
 
+      // Notify connection status
+      _connectionStatusController.add(true);
+
       // Discover services
       await _discoverServices(bluetoothDevice);
     } catch (e) {
+      _ecgErrorController.add('Connection failed: $e');
+      _connectionStatusController.add(false);
       throw Exception('Connection failed: $e');
     }
   }
@@ -96,8 +111,15 @@ class BluetoothService {
         final bluetoothDevice = BluetoothDevice(remoteId: DeviceIdentifier(_currentDevice!.id));
         await bluetoothDevice.disconnect();
 
+        // Cancel ECG subscription
+        _ecgCharacteristicSubscription?.cancel();
+
         _currentDevice = null;
+
+        // Notify disconnection status
+        _connectionStatusController.add(false);
       } catch (e) {
+        _ecgErrorController.add('Disconnection error: $e');
         throw Exception('Disconnection failed: $e');
       }
     }
@@ -109,24 +131,111 @@ class BluetoothService {
       // Process services and characteristics
       for (var service in services) {
         for (var characteristic in service.characteristics) {
-          // Subscribe to heart rate notification characteristic
-          if (characteristic.uuid.toString().toLowerCase().contains('2a37') ||
-              characteristic.uuid.toString().toLowerCase().contains('heart')) {
-            await characteristic.setNotifyValue(true);
+          try {
+            // Subscribe to heart rate notification characteristic
+            if (characteristic.uuid.toString().toLowerCase().contains('2a37') ||
+                characteristic.uuid.toString().toLowerCase().contains('heart')) {
+              await characteristic.setNotifyValue(true);
 
-            characteristic.value.listen((value) {
-              if (value.isNotEmpty) {
-                // Parse heart rate from BLE data
-                // Typically BPM is in the first byte
-                final heartRate = _parseHeartRate(value);
-                _heartRateController.add(heartRate);
+              characteristic.value.listen((value) {
+                if (value.isNotEmpty) {
+                  // Parse heart rate from BLE data
+                  // Typically BPM is in the first byte
+                  final heartRate = _parseHeartRate(value);
+                  _heartRateController.add(heartRate);
+                }
+              }, onError: (error) {
+                _ecgErrorController.add('Error reading heart rate: $error');
+              });
+            }
+
+            // Subscribe to ECG data characteristic
+            // Common UUIDs for ECG: 2a65 (Body Sensor Location), or custom UUIDs
+            if (characteristic.uuid.toString().toLowerCase().contains('2a65') ||
+                characteristic.uuid.toString().toLowerCase().contains('ecg') ||
+                characteristic.uuid.toString().toLowerCase().contains('wave') ||
+                characteristic.properties.notify ||
+                characteristic.properties.indicate) {
+              // Try to enable notifications/indications
+              try {
+                if (characteristic.properties.notify) {
+                  await characteristic.setNotifyValue(true);
+                }
+                if (characteristic.properties.indicate) {
+                  await characteristic.setNotifyValue(true);
+                }
+
+                _ecgCharacteristicSubscription?.cancel();
+                _ecgCharacteristicSubscription = characteristic.value.listen(
+                  (value) {
+                    if (value.isNotEmpty) {
+                      try {
+                        final ecgData = _parseECGData(value);
+                        if (ecgData.isNotEmpty) {
+                          _ecgDataController.add(ecgData);
+                        }
+                      } catch (e) {
+                        _ecgErrorController.add('Error parsing ECG data: $e');
+                      }
+                    }
+                  },
+                  onError: (error) {
+                    _ecgErrorController.add('Error receiving ECG data: $error');
+                  },
+                );
+              } catch (e) {
+                // If this characteristic doesn't support notifications, skip it
+                continue;
               }
-            });
+            }
+          } catch (e) {
+            // Continue to next characteristic if this one fails
+            continue;
           }
         }
       }
     } catch (e) {
+      _ecgErrorController.add('Service discovery error: $e');
       throw Exception('Service discovery error: $e');
+    }
+  }
+
+  List<int> _parseECGData(List<int> value) {
+    // Parse ECG data from BLE characteristics
+    // This is a generic parser - adjust based on your device's BLE protocol
+    // Most devices send raw ECG samples as a series of integers
+    
+    try {
+      // If the first byte is a flags byte, skip it
+      List<int> ecgSamples = [];
+      
+      if (value.length > 1) {
+        // Assume format: [flags_byte, sample1_low, sample1_high, sample2_low, sample2_high, ...]
+        // or [sample1, sample2, sample3, ...]
+        
+        int startIndex = 0;
+        // Skip flags byte if present
+        if (value[0] < 128) {
+          startIndex = 1;
+        }
+        
+        // Parse 16-bit samples
+        for (int i = startIndex; i < value.length - 1; i += 2) {
+          int sample = (value[i] | (value[i + 1] << 8));
+          // Normalize to 0-255 range if needed
+          if (sample > 255) {
+            sample = sample & 0xFF;
+          }
+          ecgSamples.add(sample);
+        }
+      } else if (value.length == 1) {
+        ecgSamples.add(value[0]);
+      }
+      
+      return ecgSamples;
+    } catch (e) {
+      // If parsing fails, return empty list
+      return [];
     }
   }
 
@@ -146,7 +255,11 @@ class BluetoothService {
   List<BluetoothDeviceModel> get connectedDevices => _connectedDevices;
 
   void dispose() {
+    _ecgCharacteristicSubscription?.cancel();
     _deviceController.close();
     _heartRateController.close();
+    _ecgDataController.close();
+    _connectionStatusController.close();
+    _ecgErrorController.close();
   }
 }

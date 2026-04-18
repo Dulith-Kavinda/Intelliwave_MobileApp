@@ -41,6 +41,14 @@ class BluetoothProvider extends ChangeNotifier {
       _currentHeartRate = heartRate;
       notifyListeners();
     });
+
+    _bluetoothService.connectionStatusStream.listen((isConnected) {
+      if (!isConnected) {
+        _connectedDevice = null;
+        _currentHeartRate = 0;
+      }
+      notifyListeners();
+    });
   }
 
   Future<void> initialize() async {
