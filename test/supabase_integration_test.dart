@@ -86,9 +86,10 @@ void main() {
           expect(response.user, isNotNull);
           expect(response.user!.email, testEmail);
           print('✅ Sign in successful');
-          if (response.session?.accessToken != null) {
-            print('   Session: ${response.session!.accessToken!.substring(0, 20)}...');
-          }
+          final sessionToken = response.session?.accessToken != null 
+            ? response.session!.accessToken.substring(0, 20) 
+            : 'N/A';
+          print('   Session: $sessionToken...');
         } catch (e) {
           print('❌ Sign in failed: $e');
           rethrow;

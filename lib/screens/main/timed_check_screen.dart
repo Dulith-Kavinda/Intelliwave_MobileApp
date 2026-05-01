@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../constants/app_theme.dart';
 import '../../providers/timed_check_provider.dart';
-import '../../providers/auth_provider.dart';
 import '../../models/timed_check_session.dart';
 
 class TimedCheckScreen extends StatefulWidget {
@@ -157,8 +156,6 @@ class _TimedCheckScreenState extends State<TimedCheckScreen> {
     BuildContext context,
     TimedCheckProvider timedCheckProvider,
   ) async {
-    // Get user ID from auth provider
-    final authProvider = context.read();
     // Logging disabled for performance
     // print('Starting $_selectedDuration minute health check');
 

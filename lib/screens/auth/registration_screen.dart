@@ -20,6 +20,10 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final _confirmPasswordController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
+  final _birthdayController = TextEditingController();
+  final _dayController = TextEditingController();
+  final _monthController = TextEditingController();
+  final _yearController = TextEditingController();
 
   DateTime? _selectedDate;
   String? _selectedGender;
@@ -39,6 +43,10 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     _confirmPasswordController.dispose();
     _phoneController.dispose();
     _addressController.dispose();
+    _birthdayController.dispose();
+    _dayController.dispose();
+    _monthController.dispose();
+    _yearController.dispose();
     super.dispose();
   }
 
@@ -107,24 +115,113 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 validator: (value) =>
                     value?.isEmpty ?? true ? 'Address required' : null,
               ),
+              const SizedBox(height: 16),
+              Text(
+                'Birthday',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w500,
+                      color: Colors.grey[700],
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _dayController,
+                      decoration: InputDecoration(
+                        hintText: 'DD',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                      ),
+                      keyboardType: TextInputType.number,
+                      maxLength: 2,
+                      buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
+                      textAlign: TextAlign.center,
+                      validator: (value) {
+                        if (value?.isEmpty ?? true) return 'Day required';
+                        final day = int.tryParse(value!);
+                        if (day == null || day < 1 || day > 31) return 'Invalid day';
+                        return null;
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _monthController,
+                      decoration: InputDecoration(
+                        hintText: 'MM',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                      ),
+                      keyboardType: TextInputType.number,
+                      maxLength: 2,
+                      buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
+                      textAlign: TextAlign.center,
+                      validator: (value) {
+                        if (value?.isEmpty ?? true) return 'Month required';
+                        final month = int.tryParse(value!);
+                        if (month == null || month < 1 || month > 12) return 'Invalid month';
+                        return null;
+                      },
+                      onChanged: (value) {
+                        if (value.length == 2) {
+                          FocusScope.of(context).nextFocus();
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _yearController,
+                      decoration: InputDecoration(
+                        hintText: 'YYYY',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+                      ),
+                      keyboardType: TextInputType.number,
+                      maxLength: 4,
+                      buildCounter: (context, {required currentLength, required isFocused, maxLength}) => null,
+                      textAlign: TextAlign.center,
+                      validator: (value) {
+                        if (value?.isEmpty ?? true) return 'Year required';
+                        final year = int.tryParse(value!);
+                        if (year == null || year < 1950 || year > DateTime.now().year) {
+                          return 'Invalid year';
+                        }
+                        return null;
+                      },
+                      onChanged: (value) {
+                        if (value.length == 4) {
+                          FocusScope.of(context).unfocus();
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  IconButton(
+                    icon: const Icon(Icons.calendar_today),
+                    color: AppColors.primary,
+                    onPressed: _selectDate,
+                  ),
+                ],
+              ),
               const SizedBox(height: 24),
               Text(
-                'Health Information',
+                'Current Health Information',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
               ),
-              const SizedBox(height: 16),
-              ListTile(
-                title: Text(
-                  _selectedDate != null
-                      ? DateFormat('dd/MM/yyyy').format(_selectedDate!)
-                      : 'Select Birthday',
-                ),
-                leading: const Icon(Icons.calendar_today),
-                onTap: _selectDate,
-              ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 24),
               Row(
                 children: [
                   Expanded(
@@ -168,44 +265,54 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Weight: ${_weight.toStringAsFixed(1)} kg',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        Slider(
-                          value: _weight,
-                          min: 30,
-                          max: 150,
-                          divisions: 120,
-                          onChanged: (value) {
-                            setState(() => _weight = value);
-                          },
-                        ),
-                      ],
+                    child: TextFormField(
+                      keyboardType: TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        hintText: 'Weight',
+                        labelText: 'Weight (kg)',
+                        prefixIcon: Icon(Icons.monitor_weight),
+                      ),
+                      initialValue: _weight.toStringAsFixed(1),
+                      validator: (value) {
+                        if (value?.isEmpty ?? true) return 'Weight required';
+                        final weight = double.tryParse(value!);
+                        if (weight == null || weight < 30 || weight > 150) {
+                          return 'Enter weight between 30-150 kg';
+                        }
+                        return null;
+                      },
+                      onChanged: (value) {
+                        final weight = double.tryParse(value);
+                        if (weight != null) {
+                          setState(() => _weight = weight);
+                        }
+                      },
                     ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Height: ${_height.toStringAsFixed(0)} cm',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        Slider(
-                          value: _height,
-                          min: 130,
-                          max: 220,
-                          divisions: 90,
-                          onChanged: (value) {
-                            setState(() => _height = value);
-                          },
-                        ),
-                      ],
+                    child: TextFormField(
+                      keyboardType: TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(
+                        hintText: 'Height',
+                        labelText: 'Height (cm)',
+                        prefixIcon: Icon(Icons.height),
+                      ),
+                      initialValue: _height.toStringAsFixed(0),
+                      validator: (value) {
+                        if (value?.isEmpty ?? true) return 'Height required';
+                        final height = double.tryParse(value!);
+                        if (height == null || height < 130 || height > 220) {
+                          return 'Enter height between 130-220 cm';
+                        }
+                        return null;
+                      },
+                      onChanged: (value) {
+                        final height = double.tryParse(value);
+                        if (height != null) {
+                          setState(() => _height = height);
+                        }
+                      },
                     ),
                   ),
                 ],
@@ -294,20 +401,43 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   void _selectDate() async {
     final date = await showDatePicker(
       context: context,
-      initialDate: DateTime(2000),
+      initialDate: _selectedDate ?? DateTime(2000),
       firstDate: DateTime(1950),
       lastDate: DateTime.now(),
     );
     if (date != null) {
-      setState(() => _selectedDate = date);
+      setState(() {
+        _selectedDate = date;
+        _dayController.text = date.day.toString().padLeft(2, '0');
+        _monthController.text = date.month.toString().padLeft(2, '0');
+        _yearController.text = date.year.toString();
+      });
+    }
+  }
+
+  DateTime? _parseBirthday() {
+    try {
+      final day = int.tryParse(_dayController.text);
+      final month = int.tryParse(_monthController.text);
+      final year = int.tryParse(_yearController.text);
+      
+      if (day == null || month == null || year == null) return null;
+      if (day < 1 || day > 31 || month < 1 || month > 12) return null;
+      if (year < 1950 || year > DateTime.now().year) return null;
+      
+      return DateTime(year, month, day);
+    } catch (_) {
+      return null;
     }
   }
 
   void _handleRegister(BuildContext context, AuthProvider authProvider) async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedDate == null) {
+    
+    final birthday = _parseBirthday();
+    if (birthday == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select birthday')),
+        const SnackBar(content: Text('Please enter a valid birthday')),
       );
       return;
     }
@@ -317,7 +447,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
         name: _nameController.text,
-        birthday: _selectedDate!,
+        birthday: birthday,
         weight: _weight,
         height: _height,
         bloodGroup: _selectedBloodGroup!,

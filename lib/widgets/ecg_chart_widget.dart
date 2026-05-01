@@ -133,7 +133,6 @@ class ECGChartWidget extends StatelessWidget {
                   lineTouchData: LineTouchData(
                     enabled: true,
                     touchTooltipData: LineTouchTooltipData(
-                      tooltipBgColor: Colors.grey[800],
                       getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
                         return touchedBarSpots.map((barSpot) {
                           return LineTooltipItem(

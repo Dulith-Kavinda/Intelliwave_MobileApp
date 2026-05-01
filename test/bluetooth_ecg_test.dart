@@ -89,9 +89,10 @@ void main() {
       // Initial pump to build widget
       await tester.pumpAndSettle();
 
-      // Verify "No Device Connected" is shown initially
-      expect(find.text('No Device Connected'), findsOneWidget);
-      expect(find.text('Connect Device'), findsOneWidget);
+      // Verify Dashboard screen is displayed
+      expect(find.text('Dashboard'), findsOneWidget);
+      expect(find.text('Device Status'), findsOneWidget);
+      expect(find.text('Quick Actions'), findsOneWidget);
 
       // Simulate device connection
       mockBluetoothService.setConnectionStatus(true);

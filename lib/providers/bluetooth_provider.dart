@@ -15,6 +15,7 @@ class BluetoothProvider extends ChangeNotifier {
   bool get isScanning => _isScanning;
   List<BluetoothDeviceModel> get availableDevices => _availableDevices;
   BluetoothDeviceModel? get connectedDevice => _connectedDevice;
+  bool get isConnected => _connectedDevice != null;
   bool get isConnecting => _isConnecting;
   String? get errorMessage => _errorMessage;
   int get currentHeartRate => _currentHeartRate;

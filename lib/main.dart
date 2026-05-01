@@ -80,6 +80,8 @@ class MyApp extends StatelessWidget {
               '/register': (context) => const RegistrationScreen(),
               '/home': (context) => const HomeScreen(),
               '/settings': (context) => const SettingsScreen(),
+              '/onboarding': (context) => const OnboardingScreen(),
+              '/ecg_recordings': (context) => const ECGRecordingsScreen(),
             },
           );
         },
@@ -94,8 +96,8 @@ class AppHome extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<AuthProvider>(
-      builder: (context, authProvider, _) {
+    return Consumer2<SettingsProvider, AuthProvider>(
+      builder: (context, settingsProvider, authProvider, _) {
         // Show loading while auth state is being determined
         if (authProvider.isLoading) {
           return Scaffold(
@@ -125,6 +127,11 @@ class AppHome extends StatelessWidget {
               ),
             ),
           );
+        }
+
+        // Show onboarding if not completed
+        if (!settingsProvider.onboardingCompleted) {
+          return const OnboardingScreen();
         }
 
         // Show login or home based on auth state
