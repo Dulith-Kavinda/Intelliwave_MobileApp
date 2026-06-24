@@ -129,25 +129,36 @@ class SettingsScreen extends StatelessWidget {
               child: Column(
                 children: [
                   _SettingsTile(
-                    title: 'Privacy Policy',
-                    icon: Icons.privacy_tip,
-                    onTap: () {},
+                    title: 'Help & FAQ',
+                    icon: Icons.help_outline,
+                    subtitle: 'Find answers to common questions',
+                    onTap: () => Navigator.pushNamed(context, '/help'),
                   ),
-                  const Divider(),
-                  _SettingsTile(
-                    title: 'Terms of Service',
-                    icon: Icons.description,
-                    onTap: () {},
-                  ),
-                  const Divider(),
+                  const Divider(height: 1, indent: 56),
                   _SettingsTile(
                     title: 'Contact Us',
-                    icon: Icons.email,
-                    onTap: () {},
+                    icon: Icons.support_agent,
+                    subtitle: 'Get in touch with our team',
+                    onTap: () => Navigator.pushNamed(context, '/contact'),
+                  ),
+                  const Divider(height: 1, indent: 56),
+                  _SettingsTile(
+                    title: 'Privacy Policy',
+                    icon: Icons.privacy_tip_outlined,
+                    subtitle: 'How we handle your data',
+                    onTap: () => Navigator.pushNamed(context, '/privacy'),
+                  ),
+                  const Divider(height: 1, indent: 56),
+                  _SettingsTile(
+                    title: 'Terms & Conditions',
+                    icon: Icons.gavel,
+                    subtitle: 'Read our terms of service',
+                    onTap: () => Navigator.pushNamed(context, '/terms'),
                   ),
                 ],
               ),
             ),
+
           ],
         ),
       ),

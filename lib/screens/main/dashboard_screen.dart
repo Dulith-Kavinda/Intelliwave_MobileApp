@@ -3,8 +3,12 @@ import 'package:provider/provider.dart';
 import 'dart:async';
 import '../../constants/app_theme.dart';
 import '../../providers/bluetooth_provider.dart';
-import '../../utils/test_ecg_data.dart';
+import '../../providers/ecg_provider.dart';
 import '../../models/ecg_recording_model.dart';
+import '../../widgets/live_ecg_graph_widget.dart';
+import '../../utils/service_locator.dart';
+import 'device_scanner_screen.dart';
+import 'notifications_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({Key? key}) : super(key: key);
@@ -14,55 +18,51 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  bool _isGraphPlaying = true;
   bool _isRecording = false;
   int _recordingDuration = 300; // 5 minutes default
   int _recordingProgress = 0;
   Timer? _recordingTimer;
-  late List<double> _ecgData;
-  int _dataIndex = 0;
-  Timer? _graphTimer;
+  StreamSubscription<List<int>>? _ecgRecordingSubscription;
+  final List<double> _recordedEcgData = [];
+  final List<int> _recordedHeartRates = [];
   late List<ECGRecording> _pastRecordings;
   String _timeUnit = 'minutes'; // 'seconds', 'minutes', 'hours'
-  TextEditingController _durationController = TextEditingController(text: '5');
+  final TextEditingController _durationController = TextEditingController(text: '5');
 
   @override
   void initState() {
     super.initState();
-    _ecgData = TestECGData.getExtendedData(500);
-    _pastRecordings = [];
-    _startGraphAnimation();
+    _pastRecordings = storageService.getECGRecordings();
   }
 
   @override
   void dispose() {
-    _graphTimer?.cancel();
     _recordingTimer?.cancel();
+    _ecgRecordingSubscription?.cancel();
     _durationController.dispose();
     super.dispose();
   }
 
-  void _startGraphAnimation() {
-    _graphTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
-      if (_isGraphPlaying && mounted) {
-        setState(() {
-          _dataIndex = (_dataIndex + 5) % _ecgData.length;
-        });
+  void _startRecording() {
+    _recordedEcgData.clear();
+    _recordedHeartRates.clear();
+
+    _ecgRecordingSubscription = bluetoothService.ecgDataStream.listen((data) {
+      if (mounted) {
+        _recordedEcgData.addAll(data.map((e) => e.toDouble()));
       }
     });
-  }
 
-  void _toggleGraphPlayPause() {
-    setState(() {
-      _isGraphPlaying = !_isGraphPlaying;
-    });
-  }
-
-  void _startRecording() {
     _recordingProgress = 0;
     _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         _recordingProgress++;
+
+        final btProvider = Provider.of<BluetoothProvider>(context, listen: false);
+        if (btProvider.isConnected && btProvider.currentHeartRate > 0) {
+          _recordedHeartRates.add(btProvider.currentHeartRate);
+        }
+
         if (_recordingProgress >= _recordingDuration) {
           _stopRecording();
         }
@@ -75,20 +75,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _stopRecording() {
     _recordingTimer?.cancel();
+    _ecgRecordingSubscription?.cancel();
+    _ecgRecordingSubscription = null;
+
     setState(() {
       _isRecording = false;
     });
 
-    // Create a recording entry
+    int avgHeartRate = 0;
+    if (_recordedHeartRates.isNotEmpty) {
+      avgHeartRate = (_recordedHeartRates.reduce((a, b) => a + b) / _recordedHeartRates.length).toInt();
+    } else {
+      final btProvider = Provider.of<BluetoothProvider>(context, listen: false);
+      avgHeartRate = btProvider.currentHeartRate;
+    }
+
+    final btProvider = Provider.of<BluetoothProvider>(context, listen: false);
+    final deviceName = btProvider.connectedDevice?.name ?? 'Heart Monitor';
+
     final recording = ECGRecording(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      deviceName: 'Heart Monitor',
+      deviceName: deviceName,
       recordedAt: DateTime.now(),
       durationSeconds: _recordingProgress,
-      ecgData: _ecgData,
-      healthMetrics: TestECGData.getHealthMetrics(),
+      ecgData: List.from(_recordedEcgData),
+      healthMetrics: {
+        'heartRate': avgHeartRate,
+        'quality': _recordedEcgData.isNotEmpty ? 'Good' : 'No Data',
+        'systolic': '--',
+        'diastolic': '--',
+        'oxygen': '--',
+      },
     );
 
+    storageService.saveECGRecording(recording);
     setState(() {
       _pastRecordings.insert(0, recording);
     });
@@ -136,186 +156,136 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ],
       ),
-      body: Consumer<BluetoothProvider>(
-        builder: (context, btProvider, _) {
-          return SingleChildScrollView(
-            child: Column(
-              children: [
-                // Status Bar - Only show when disconnected or has problem
-                if (!btProvider.isConnected)
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.15),
-                      border: Border(
-                        bottom: BorderSide(
-                          color: Colors.red.withOpacity(0.3),
-                          width: 1,
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            // Status bar + live ECG + metrics (rebuilds on BT data change)
+            Consumer2<BluetoothProvider, ECGProvider>(
+              builder: (context, btProvider, ecgProvider, _) {
+                return Column(
+                  children: [
+                    // Status Bar - Only show when disconnected
+                    if (!btProvider.isConnected)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
                         ),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.warning_rounded,
-                          color: Colors.red[700],
-                          size: 20,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            'Device not connected. Please connect your ECG device to continue.',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.red[700],
-                              fontWeight: FontWeight.w500,
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.15),
+                          border: Border(
+                            bottom: BorderSide(
+                              color: Colors.red.withOpacity(0.3),
+                              width: 1,
                             ),
                           ),
                         ),
-                      ],
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.warning_rounded,
+                              color: Colors.red[700],
+                              size: 20,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                'Device not connected. Please connect your ECG device to continue.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.red[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // ECG Graph — RepaintBoundary prevents full page repaint
+                          RepaintBoundary(
+                            child: _buildECGGraphSection(btProvider, ecgProvider),
+                          ),
+                          const SizedBox(height: 24),
+                          // Analytics metrics
+                          _buildAnalyticsSection(btProvider, ecgProvider),
+                          const SizedBox(height: 24),
+                          // Recording Controls
+                          _buildRecordingSection(btProvider),
+                        ],
+                      ),
                     ),
-                  ),
-                // Main Content
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // ECG Graph
-                      _buildECGGraphSection(),
-                      const SizedBox(height: 24),
-                      // Analytics
-                      _buildAnalyticsSection(),
-                      const SizedBox(height: 24),
-                      // Recording Controls
-                      _buildRecordingSection(),
-                      const SizedBox(height: 24),
-                      // Quick Access
-                      _buildQuickAccessSection(),
-                      const SizedBox(height: 24),
-                      // Past Recordings
-                      _buildPastRecordingsSection(),
-                    ],
-                  ),
-                ),
-              ],
+                  ],
+                );
+              },
             ),
-          );
-        },
+            // Static sections — never rebuild from BT data
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+              child: Column(
+                children: [
+                  _buildQuickAccessSection(),
+                  const SizedBox(height: 24),
+                  _buildPastRecordingsSection(),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildECGGraphSection() {
+  Widget _buildECGGraphSection(BluetoothProvider btProvider, ECGProvider ecgProvider) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'Real-Time ECG Monitor',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 6,
-              ),
-              decoration: BoxDecoration(
-                color: _isGraphPlaying
-                    ? Colors.green.withOpacity(0.15)
-                    : Colors.grey.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                _isGraphPlaying ? '● Live' : '○ Paused',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: _isGraphPlaying ? Colors.green : Colors.grey,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        // ECG Graph Container - No Shadow, No Frame
-        Container(
-          height: 220,
-          margin: const EdgeInsets.symmetric(horizontal: 0),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.show_chart,
-                  size: 52,
-                  color: AppColors.primary.withOpacity(0.3),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  'ECG Waveform Display',
-                  style: TextStyle(
-                    color: Colors.grey[700],
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Heart Rate: ${TestECGData.getHealthMetrics()['heartRate']} BPM',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
+        const Text(
+          'Real-Time ECG Monitor',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
           ),
         ),
         const SizedBox(height: 16),
-        // Control Buttons
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            FloatingActionButton.small(
-              onPressed: _toggleGraphPlayPause,
-              backgroundColor:
-                  _isGraphPlaying ? Colors.orange : Colors.green,
-              child: Icon(_isGraphPlaying ? Icons.pause : Icons.play_arrow),
-            ),
-            FloatingActionButton.small(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Opening fullscreen view'),
-                  ),
-                );
-              },
-              backgroundColor: AppColors.primary,
-              child: const Icon(Icons.fullscreen),
-            ),
-          ],
+        LiveECGGraphWidget(
+          ecgData: ecgProvider.ecgData,
+          isConnected: btProvider.isConnected,
+          hasError: ecgProvider.hasDataError,
+          errorMessage: ecgProvider.errorMessage,
+          onConnectDevice: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const DeviceScannerScreen()),
+            );
+          },
+          onFullscreen: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const FullscreenECGGraph(),
+              ),
+            );
+          },
         ),
       ],
     );
   }
 
-  Widget _buildAnalyticsSection() {
-    final metrics = TestECGData.getHealthMetrics();
+  Widget _buildAnalyticsSection(BluetoothProvider btProvider, ECGProvider ecgProvider) {
+    final hasRealHeartRate = btProvider.isConnected && btProvider.currentHeartRate > 0;
+    final heartRateStr = hasRealHeartRate ? '${btProvider.currentHeartRate} BPM' : '--';
+    final bpStr = btProvider.isConnected ? 'N/A' : '--';
+    final oxygenStr = btProvider.isConnected ? 'N/A' : '--';
+    final signalQualityStr = btProvider.isConnected 
+        ? (ecgProvider.hasDataError ? 'Poor' : 'Good') 
+        : '--';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -329,7 +299,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         const SizedBox(height: 16),
         GridView.count(
           crossAxisCount: 2,
-          childAspectRatio: 2.5,
+          childAspectRatio: 2.0,
           crossAxisSpacing: 14,
           mainAxisSpacing: 14,
           shrinkWrap: true,
@@ -337,25 +307,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             _buildMetricCard(
               'Heart Rate',
-              '${metrics['heartRate']} BPM',
+              heartRateStr,
               Icons.favorite,
               Colors.red,
             ),
             _buildMetricCard(
               'Blood Pressure',
-              '${metrics['systolic']}/${metrics['diastolic']}',
+              bpStr,
               Icons.favorite_outline,
               Colors.orange,
             ),
             _buildMetricCard(
               'SpO2',
-              '${metrics['oxygen']}%',
+              oxygenStr,
               Icons.air,
               Colors.blue,
             ),
             _buildMetricCard(
               'Signal Quality',
-              metrics['quality'],
+              signalQualityStr,
               Icons.signal_cellular_alt,
               Colors.green,
             ),
@@ -392,7 +362,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               label,
               style: TextStyle(
                 fontSize: 11,
-                color: Colors.grey[700],
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? AppColors.darkTextSecondary
+                    : Colors.grey[600],
                 fontWeight: FontWeight.w500,
               ),
               textAlign: TextAlign.center,
@@ -417,7 +389,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildRecordingSection() {
+  Widget _buildRecordingSection(BluetoothProvider btProvider) {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -461,7 +433,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: Theme.of(context).brightness == Brightness.dark
+                    ? AppColors.darkSurface2
+                    : Colors.white,
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: AppColors.primary.withOpacity(0.2),
@@ -476,7 +450,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: Colors.grey[800],
+                      color: Theme.of(context).brightness == Brightness.dark
+                          ? AppColors.darkTextSecondary
+                          : Colors.grey[800],
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -488,7 +464,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         child: Container(
                           decoration: BoxDecoration(
                             border: Border.all(
-                              color: Colors.grey[300]!,
+                              color: Theme.of(context).brightness == Brightness.dark
+                                  ? AppColors.darkBorder
+                                  : Colors.grey[300]!,
                               width: 1.5,
                             ),
                             borderRadius: BorderRadius.circular(10),
@@ -497,10 +475,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             controller: _durationController,
                             keyboardType: TextInputType.number,
                             textAlign: TextAlign.center,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF2563EB),
+                              color: Theme.of(context).brightness == Brightness.dark
+                                  ? AppColors.primaryLight
+                                  : const Color(0xFF2563EB),
                             ),
                             decoration: InputDecoration(
                               border: InputBorder.none,
@@ -509,7 +489,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                               hintText: '5',
                               hintStyle: TextStyle(
-                                color: Colors.grey[400],
+                                color: Theme.of(context).brightness == Brightness.dark
+                                    ? AppColors.darkTextMuted
+                                    : Colors.grey[400],
                               ),
                             ),
                             onChanged: (value) {
@@ -527,17 +509,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         child: Container(
                           decoration: BoxDecoration(
                             border: Border.all(
-                              color: Colors.grey[300]!,
+                              color: Theme.of(context).brightness == Brightness.dark
+                                  ? AppColors.darkBorder
+                                  : Colors.grey[300]!,
                               width: 1.5,
                             ),
                             borderRadius: BorderRadius.circular(10),
-                            color: Colors.grey[50],
+                            color: Theme.of(context).brightness == Brightness.dark
+                                ? AppColors.darkSurface3
+                                : Colors.grey[50],
                           ),
                           child: DropdownButton<String>(
                             value: _timeUnit,
                             isExpanded: true,
                             underline: const SizedBox(),
                             padding: const EdgeInsets.symmetric(horizontal: 12),
+                            dropdownColor: Theme.of(context).brightness == Brightness.dark
+                                ? AppColors.darkSurface3
+                                : Colors.white,
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
@@ -677,32 +666,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () {
-                  // Validate minimum 15 seconds
-                  if (!_isRecording &&
-                      _recordingDuration < 15) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Recording duration must be at least 15 seconds',
-                        ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                    return;
-                  }
-                  if (_isRecording) {
-                    _stopRecording();
-                  } else {
-                    _startRecording();
-                  }
-                },
+                onPressed: !btProvider.isConnected
+                    ? null
+                    : () {
+                        // Validate minimum 15 seconds
+                        if (!_isRecording &&
+                            _recordingDuration < 15) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Recording duration must be at least 15 seconds',
+                              ),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                          return;
+                        }
+                        if (_isRecording) {
+                          _stopRecording();
+                        } else {
+                          _startRecording();
+                        }
+                      },
                 icon: Icon(
                   _isRecording ? Icons.stop_circle : Icons.fiber_manual_record,
                   size: 22,
                 ),
                 label: Text(
-                  _isRecording ? 'Stop Recording' : 'Start Recording',
+                  !btProvider.isConnected
+                      ? 'Connect Device to Record'
+                      : _isRecording
+                          ? 'Stop Recording'
+                          : 'Start Recording',
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -749,8 +744,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Icons.bluetooth,
               Colors.blue,
               () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Navigate to Device Scanner')),
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const DeviceScannerScreen()),
                 );
               },
             ),
@@ -767,8 +763,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Icons.notifications,
               Colors.orange,
               () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Navigate to Alerts')),
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const NotificationsScreen()),
                 );
               },
             ),
@@ -855,7 +852,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Icon(
                     Icons.folder_open,
                     size: 48,
-                    color: Colors.grey[300],
+                    color: AppColors.darkBorder,
                   ),
                   const SizedBox(height: 8),
                   Text(

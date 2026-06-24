@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../../constants/app_theme.dart';
 import '../../widgets/common_widgets.dart';
 import '../../models/heartbeat_data.dart';
+import '../../providers/heartbeat_provider.dart';
+import '../../providers/auth_provider.dart';
+import 'ecg_recordings_screen.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({Key? key}) : super(key: key);
@@ -13,110 +17,122 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   DateTime? _selectedDate;
-  final List<HeartbeatData> _sampleData = [
-    HeartbeatData(
-      id: '1',
-      userId: 'user1',
-      heartRate: 72,
-      timestamp: DateTime.now().subtract(const Duration(hours: 2)),
-      deviceId: 'device1',
-      status: 'good',
-      ecgData: [],
-    ),
-    HeartbeatData(
-      id: '2',
-      userId: 'user1',
-      heartRate: 85,
-      timestamp: DateTime.now().subtract(const Duration(hours: 1)),
-      deviceId: 'device1',
-      status: 'normal',
-      ecgData: [],
-    ),
-    HeartbeatData(
-      id: '3',
-      userId: 'user1',
-      heartRate: 95,
-      timestamp: DateTime.now(),
-      deviceId: 'device1',
-      status: 'normal',
-      ecgData: [],
-    ),
-  ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final userId = authProvider.currentUserModel?.uid ?? '';
+      if (userId.isNotEmpty) {
+        Provider.of<HeartbeatProvider>(context, listen: false).loadHeartbeatData(userId);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Heart Rate History'),
-        elevation: 0,
-      ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: _selectDate,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 12,
-                      ),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppColors.lightGrey),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('History'),
+          elevation: 0,
+          bottom: TabBar(
+            indicatorColor: AppColors.primary,
+            labelColor: Theme.of(context).brightness == Brightness.dark
+                ? Colors.white
+                : Colors.black,
+            unselectedLabelColor: Colors.grey,
+            tabs: const [
+              Tab(text: 'ECG Recordings'),
+              Tab(text: 'Heart Rate Logs'),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            // Tab 1: ECG Recordings
+            const ECGRecordingsScreen(showAppBar: false),
+            // Tab 2: Heart Rate Logs
+            Consumer<HeartbeatProvider>(
+              builder: (context, heartbeatProvider, _) {
+                final dataList = heartbeatProvider.filteredData;
+                return Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
                       child: Row(
                         children: [
-                          const Icon(Icons.calendar_today),
-                          const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              _selectedDate != null
-                                  ? DateFormat('dd/MM/yyyy').format(_selectedDate!)
-                                  : 'Select Date',
-                              style: Theme.of(context).textTheme.bodyMedium,
+                            child: GestureDetector(
+                              onTap: () => _selectDate(heartbeatProvider),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: AppColors.lightGrey),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.calendar_today),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        _selectedDate != null
+                                            ? DateFormat('dd/MM/yyyy').format(_selectedDate!)
+                                            : 'Select Date',
+                                        style: Theme.of(context).textTheme.bodyMedium,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
+                          const SizedBox(width: 8),
+                          if (_selectedDate != null)
+                            IconButton(
+                              onPressed: () {
+                                setState(() => _selectedDate = null);
+                                heartbeatProvider.clearFilter();
+                              },
+                              icon: const Icon(Icons.close),
+                            ),
                         ],
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                if (_selectedDate != null)
-                  IconButton(
-                    onPressed: () {
-                      setState(() => _selectedDate = null);
-                    },
-                    icon: const Icon(Icons.close),
-                  ),
-              ],
+                    Expanded(
+                      child: heartbeatProvider.isLoading
+                          ? const Center(child: CircularProgressIndicator())
+                          : dataList.isEmpty
+                              ? EmptyState(
+                                  title: 'No History',
+                                  subtitle: 'No heart rate data found',
+                                  icon: Icons.history,
+                                )
+                              : ListView.builder(
+                                  itemCount: dataList.length,
+                                  itemBuilder: (context, index) {
+                                    final data = dataList[index];
+                                    return _HistoryCard(heartbeatData: data);
+                                  },
+                                ),
+                    ),
+                  ],
+                );
+              },
             ),
-          ),
-          Expanded(
-            child: _sampleData.isEmpty
-                ? EmptyState(
-                    title: 'No History',
-                    subtitle: 'No heart rate data found',
-                    icon: Icons.history,
-                  )
-                : ListView.builder(
-                    itemCount: _sampleData.length,
-                    itemBuilder: (context, index) {
-                      final data = _sampleData[index];
-                      return _HistoryCard(heartbeatData: data);
-                    },
-                  ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  void _selectDate() async {
+  void _selectDate(HeartbeatProvider heartbeatProvider) async {
     final date = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
@@ -125,6 +141,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
     if (date != null) {
       setState(() => _selectedDate = date);
+      heartbeatProvider.filterByDate(date);
     }
   }
 }

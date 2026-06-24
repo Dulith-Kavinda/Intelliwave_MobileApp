@@ -21,12 +21,16 @@ class BluetoothService {
   Stream<bool> get connectionStatusStream => _connectionStatusController.stream;
   Stream<String> get ecgErrorStream => _ecgErrorController.stream;
 
-  List<BluetoothDeviceModel> _connectedDevices = [];
+  final List<BluetoothDeviceModel> _connectedDevices = [];
   BluetoothDeviceModel? _currentDevice;
   StreamSubscription? _ecgCharacteristicSubscription;
+  StreamSubscription? _scanSubscription;
+  Timer? _simulationTimer;
+
+  BluetoothDeviceModel? get currentDevice => _currentDevice;
+  List<BluetoothDeviceModel> get connectedDevices => _connectedDevices;
 
   Future<void> initialize() async {
-    // Request permissions
     await _requestPermissions();
   }
 
@@ -38,45 +42,95 @@ class BluetoothService {
       Permission.location,
     ].request();
 
-    // Check if all permissions are granted
-    bool allGranted = statuses.values.every((status) => status.isGranted);
-    if (allGranted) {
-      // Permissions granted
+    final allGranted = statuses.values.every((status) => status.isGranted);
+    if (!allGranted) {
+      _ecgErrorController.add(
+          'Some Bluetooth permissions were denied. Scanning may not work.');
     }
+  }
+
+  Future<bool> isBluetoothOn() async {
+    return await FlutterBluePlus.adapterState.first ==
+        BluetoothAdapterState.on;
   }
 
   Future<void> startScan() async {
     try {
-      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
+      // Inject simulated device for UI testing and verification
+      final simulatedDevice = BluetoothDeviceModel(
+        id: 'SIMULATED_ECG_001',
+        name: 'Simulated ECG Device (Demo)',
+        macAddress: '00:11:22:33:44:55',
+        isConnected: false,
+        lastConnected: DateTime.now(),
+        signalStrength: -45,
+        deviceType: 'heartbeat',
+        isSaved: false,
+      );
+      _deviceController.add(simulatedDevice);
 
-      FlutterBluePlus.scanResults.listen((results) {
+      // Stop any existing scan first
+      await FlutterBluePlus.stopScan();
+
+      final Set<String> seenIds = {'SIMULATED_ECG_001'};
+
+      await FlutterBluePlus.startScan(
+        timeout: const Duration(seconds: 15),
+        androidUsesFineLocation: true,
+      );
+
+      _scanSubscription?.cancel();
+      _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
         for (ScanResult result in results) {
-          if (result.device.platformName.isNotEmpty &&
-              (result.device.platformName.toLowerCase().contains('heart') ||
-                  result.device.platformName.toLowerCase().contains('fitness') ||
-                  result.device.platformName.toLowerCase().contains('band'))) {
+          final deviceId = result.device.remoteId.str;
+          // Avoid duplicates
+          if (seenIds.contains(deviceId)) continue;
+
+          // Show ALL named devices (earbuds, bands, sensors, etc.)
+          final name = result.device.platformName;
+          if (name.isNotEmpty) {
+            seenIds.add(deviceId);
+
+            final deviceType = _detectDeviceType(name);
             final device = BluetoothDeviceModel(
-              id: result.device.id.id,
-              name: result.device.platformName,
-              macAddress: result.device.id.id,
+              id: deviceId,
+              name: name,
+              macAddress: deviceId,
               isConnected: false,
               lastConnected: DateTime.now(),
               signalStrength: result.rssi,
-              deviceType: 'heartbeat',
+              deviceType: deviceType,
               isSaved: false,
             );
 
             _deviceController.add(device);
           }
         }
+      }, onError: (error) {
+        _ecgErrorController.add('Scan error: $error');
       });
     } catch (e) {
       throw Exception('Bluetooth scan error: $e');
     }
   }
 
+  /// Determine device type from name for better UX display
+  String _detectDeviceType(String name) {
+    final lower = name.toLowerCase();
+    if (lower.contains('heart') || lower.contains('ecg')) return 'heartbeat';
+    if (lower.contains('band') || lower.contains('watch') ||
+        lower.contains('fit')) return 'fitness';
+    if (lower.contains('ear') || lower.contains('bud') ||
+        lower.contains('pod') || lower.contains('headphone') ||
+        lower.contains('airpod') || lower.contains('galaxy buds') ||
+        lower.contains('jabra') || lower.contains('jbl')) return 'audio';
+    return 'generic';
+  }
+
   Future<void> stopScan() async {
     try {
+      _scanSubscription?.cancel();
+      _scanSubscription = null;
       await FlutterBluePlus.stopScan();
     } catch (e) {
       throw Exception('Failed to stop scan: $e');
@@ -85,18 +139,33 @@ class BluetoothService {
 
   Future<void> connectToDevice(BluetoothDeviceModel device) async {
     try {
-      final bluetoothDevice = BluetoothDevice(remoteId: DeviceIdentifier(device.id));
+      if (device.id == 'SIMULATED_ECG_001') {
+        _startSimulation(device);
+        return;
+      }
+      final bluetoothDevice =
+          BluetoothDevice(remoteId: DeviceIdentifier(device.id));
 
-      await bluetoothDevice.connect();
+      // Connect with auto-reconnect
+      await bluetoothDevice.connect(autoConnect: false);
 
-      _currentDevice = device;
+      _currentDevice = device.copyWith(isConnected: true);
+      if (!_connectedDevices.any((d) => d.id == device.id)) {
+        _connectedDevices.add(_currentDevice!);
+      }
 
-      _deviceController.add(device);
-
-      // Notify connection status
+      _deviceController.add(_currentDevice!);
       _connectionStatusController.add(true);
 
-      // Discover services
+      // Listen for disconnection
+      bluetoothDevice.connectionState.listen((state) {
+        if (state == BluetoothConnectionState.disconnected) {
+          _currentDevice = null;
+          _connectionStatusController.add(false);
+        }
+      });
+
+      // Discover services for data characteristics
       await _discoverServices(bluetoothDevice);
     } catch (e) {
       _ecgErrorController.add('Connection failed: $e');
@@ -107,16 +176,25 @@ class BluetoothService {
 
   Future<void> disconnectDevice() async {
     if (_currentDevice != null) {
+      if (_currentDevice!.id == 'SIMULATED_ECG_001') {
+        _simulationTimer?.cancel();
+        _simulationTimer = null;
+        _connectedDevices.removeWhere((d) => d.id == _currentDevice!.id);
+        _currentDevice = null;
+        _connectionStatusController.add(false);
+        return;
+      }
       try {
-        final bluetoothDevice = BluetoothDevice(remoteId: DeviceIdentifier(_currentDevice!.id));
+        final bluetoothDevice =
+            BluetoothDevice(remoteId: DeviceIdentifier(_currentDevice!.id));
         await bluetoothDevice.disconnect();
 
-        // Cancel ECG subscription
         _ecgCharacteristicSubscription?.cancel();
+        _ecgCharacteristicSubscription = null;
 
+        _connectedDevices.removeWhere((d) => d.id == _currentDevice!.id);
         _currentDevice = null;
 
-        // Notify disconnection status
         _connectionStatusController.add(false);
       } catch (e) {
         _ecgErrorController.add('Disconnection error: $e');
@@ -128,45 +206,40 @@ class BluetoothService {
   Future<void> _discoverServices(BluetoothDevice device) async {
     try {
       final services = await device.discoverServices();
-      // Process services and characteristics
+
       for (var service in services) {
         for (var characteristic in service.characteristics) {
           try {
-            // Subscribe to heart rate notification characteristic
-            if (characteristic.uuid.toString().toLowerCase().contains('2a37') ||
-                characteristic.uuid.toString().toLowerCase().contains('heart')) {
-              await characteristic.setNotifyValue(true);
+            final uuid = characteristic.uuid.toString().toLowerCase();
 
-              characteristic.value.listen((value) {
-                if (value.isNotEmpty) {
-                  // Parse heart rate from BLE data
-                  // Typically BPM is in the first byte
-                  final heartRate = _parseHeartRate(value);
-                  _heartRateController.add(heartRate);
-                }
-              }, onError: (error) {
-                _ecgErrorController.add('Error reading heart rate: $error');
-              });
+            // Heart Rate Measurement (0x2A37)
+            if (uuid.contains('2a37') || uuid.contains('heart')) {
+              if (characteristic.properties.notify ||
+                  characteristic.properties.indicate) {
+                await characteristic.setNotifyValue(true);
+                // Use onValueReceived (flutter_blue_plus v1.35+)
+                characteristic.onValueReceived.listen((value) {
+                  if (value.isNotEmpty) {
+                    final heartRate = _parseHeartRate(value);
+                    _heartRateController.add(heartRate);
+                  }
+                }, onError: (error) {
+                  _ecgErrorController.add('Error reading heart rate: $error');
+                });
+              }
             }
 
-            // Subscribe to ECG data characteristic
-            // Common UUIDs for ECG: 2a65 (Body Sensor Location), or custom UUIDs
-            if (characteristic.uuid.toString().toLowerCase().contains('2a65') ||
-                characteristic.uuid.toString().toLowerCase().contains('ecg') ||
-                characteristic.uuid.toString().toLowerCase().contains('wave') ||
-                characteristic.properties.notify ||
-                characteristic.properties.indicate) {
-              // Try to enable notifications/indications
-              try {
-                if (characteristic.properties.notify) {
-                  await characteristic.setNotifyValue(true);
-                }
-                if (characteristic.properties.indicate) {
-                  await characteristic.setNotifyValue(true);
-                }
+            // ECG / custom waveform characteristics
+            if (uuid.contains('2a65') ||
+                uuid.contains('ecg') ||
+                uuid.contains('wave')) {
+              if (characteristic.properties.notify ||
+                  characteristic.properties.indicate) {
+                await characteristic.setNotifyValue(true);
 
                 _ecgCharacteristicSubscription?.cancel();
-                _ecgCharacteristicSubscription = characteristic.value.listen(
+                _ecgCharacteristicSubscription =
+                    characteristic.onValueReceived.listen(
                   (value) {
                     if (value.isNotEmpty) {
                       try {
@@ -183,46 +256,32 @@ class BluetoothService {
                     _ecgErrorController.add('Error receiving ECG data: $error');
                   },
                 );
-              } catch (e) {
-                // If this characteristic doesn't support notifications, skip it
-                continue;
               }
             }
           } catch (e) {
-            // Continue to next characteristic if this one fails
+            // Skip characteristics that fail
             continue;
           }
         }
       }
     } catch (e) {
       _ecgErrorController.add('Service discovery error: $e');
-      throw Exception('Service discovery error: $e');
+      // Don't rethrow — connection is still valid even if service discovery fails
     }
   }
 
   List<int> _parseECGData(List<int> value) {
-    // Parse ECG data from BLE characteristics
-    // This is a generic parser - adjust based on your device's BLE protocol
-    // Most devices send raw ECG samples as a series of integers
-    
     try {
-      // If the first byte is a flags byte, skip it
       List<int> ecgSamples = [];
-      
+
       if (value.length > 1) {
-        // Assume format: [flags_byte, sample1_low, sample1_high, sample2_low, sample2_high, ...]
-        // or [sample1, sample2, sample3, ...]
-        
         int startIndex = 0;
-        // Skip flags byte if present
         if (value[0] < 128) {
           startIndex = 1;
         }
-        
-        // Parse 16-bit samples
+
         for (int i = startIndex; i < value.length - 1; i += 2) {
           int sample = (value[i] | (value[i + 1] << 8));
-          // Normalize to 0-255 range if needed
           if (sample > 255) {
             sample = sample & 0xFF;
           }
@@ -231,30 +290,81 @@ class BluetoothService {
       } else if (value.length == 1) {
         ecgSamples.add(value[0]);
       }
-      
+
       return ecgSamples;
     } catch (e) {
-      // If parsing fails, return empty list
       return [];
     }
   }
 
   int _parseHeartRate(List<int> value) {
-    // This is a basic parser - adjust based on your device's BLE protocol
-    // Most heart rate monitors send BPM in the first byte after the flags
-    if (value.length > 1) {
+    // BLE Heart Rate profile: flags in byte 0, BPM in byte 1 (or bytes 1-2 for 16-bit)
+    if (value.isEmpty) return 0;
+    final flags = value[0];
+    final is16Bit = (flags & 0x01) != 0;
+    if (is16Bit && value.length >= 3) {
+      return value[1] | (value[2] << 8);
+    } else if (value.length >= 2) {
       return value[1];
-    } else if (value.isNotEmpty) {
-      return value[0];
     }
-    return 0;
+    return value[0];
   }
 
-  BluetoothDeviceModel? get currentDevice => _currentDevice;
+  void _startSimulation(BluetoothDeviceModel device) {
+    _simulationTimer?.cancel();
 
-  List<BluetoothDeviceModel> get connectedDevices => _connectedDevices;
+    _currentDevice = device.copyWith(isConnected: true);
+    if (!_connectedDevices.any((d) => d.id == device.id)) {
+      _connectedDevices.add(_currentDevice!);
+    }
+
+    _deviceController.add(_currentDevice!);
+    _connectionStatusController.add(true);
+
+    // Textbook human ECG cycle (200 samples) containing clear P, Q, R, S, T waves
+    const List<int> simulatedEcgPattern = [
+      100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+      100, 102, 104, 107, 109, 111, 112, 114, 115, 116, 117, 118, 118, 118, 118, 117, 116, 115, 114, 112,
+      111, 109, 107, 104, 102, 100, 100, 100, 100, 100, 100, 100, 100, 100, 90, 80, 95, 110, 140, 190,
+      245, 255, 210, 150, 90, 50, 30, 20, 45, 70, 90, 98, 100, 100, 100, 100, 100, 100, 100, 100,
+      100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 102, 104, 107, 109,
+      111, 113, 115, 117, 119, 121, 122, 124, 126, 127, 128, 130, 131, 132, 133, 133, 134, 134, 135, 135,
+      135, 135, 135, 134, 134, 133, 133, 132, 131, 130, 128, 127, 126, 124, 122, 121, 119, 117, 115, 113,
+      111, 109, 107, 104, 102, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+      100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+      100, 100, 100, 100, 100, 100, 100, 100, 100, 100
+    ];
+
+    int simulationIndex = 0;
+    int heartRateTick = 0;
+
+    _simulationTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (_currentDevice == null) {
+        timer.cancel();
+        return;
+      }
+
+      // Stream a chunk of 20 samples to simulate a 200Hz sample rate
+      List<int> chunk = [];
+      for (int i = 0; i < 20; i++) {
+        chunk.add(simulatedEcgPattern[simulationIndex]);
+        simulationIndex = (simulationIndex + 1) % simulatedEcgPattern.length;
+      }
+      _ecgDataController.add(chunk);
+
+      // Stream heart rate every 1 second (10 ticks of 100ms)
+      heartRateTick++;
+      if (heartRateTick >= 10) {
+        heartRateTick = 0;
+        final mockHeartRate = 70 + (DateTime.now().second % 6);
+        _heartRateController.add(mockHeartRate);
+      }
+    });
+  }
 
   void dispose() {
+    _simulationTimer?.cancel();
+    _scanSubscription?.cancel();
     _ecgCharacteristicSubscription?.cancel();
     _deviceController.close();
     _heartRateController.close();

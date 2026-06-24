@@ -6,3 +6,7 @@ export 'profile_screen.dart';
 export 'notifications_screen.dart';
 export 'timed_check_screen.dart';
 export 'ecg_recordings_screen.dart';
+export 'terms_screen.dart';
+export 'privacy_screen.dart';
+export 'contact_screen.dart';
+export 'help_screen.dart';

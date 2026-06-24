@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/user_model.dart';
 import '../models/heartbeat_data.dart';
 import '../models/bluetooth_device_model.dart';
 import '../models/notification_model.dart';
 import '../models/timed_check_session.dart';
+import '../models/ecg_recording_model.dart';
 
 class StorageService {
   static const String usersBoxName = 'users';
@@ -178,6 +180,25 @@ class StorageService {
 
   Future<void> deletePreference(String key) async {
     await _preferencesBox.delete(key);
+  }
+
+  // ECG recordings storage
+  List<ECGRecording> getECGRecordings() {
+    final rawJson = _preferencesBox.get('ecg_recordings');
+    if (rawJson == null) return [];
+    try {
+      final List<dynamic> decoded = jsonDecode(rawJson);
+      return decoded.map((item) => ECGRecording.fromJson(Map<String, dynamic>.from(item))).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<void> saveECGRecording(ECGRecording recording) async {
+    final list = getECGRecordings();
+    list.insert(0, recording);
+    final encoded = jsonEncode(list.map((r) => r.toJson()).toList());
+    await _preferencesBox.put('ecg_recordings', encoded);
   }
 
   Future<void> clearAllData() async {

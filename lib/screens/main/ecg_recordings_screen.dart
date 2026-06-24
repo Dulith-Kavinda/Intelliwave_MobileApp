@@ -1,14 +1,23 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:path_provider/path_provider.dart';
+import 'package:fl_chart/fl_chart.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../constants/app_theme.dart';
 import '../../models/ecg_recording_model.dart';
+import '../../utils/service_locator.dart';
 
 class ECGRecordingsScreen extends StatefulWidget {
   final List<ECGRecording>? initialRecordings;
+  final bool showAppBar;
 
   const ECGRecordingsScreen({
     Key? key,
     this.initialRecordings,
+    this.showAppBar = true,
   }) : super(key: key);
 
   @override
@@ -23,8 +32,7 @@ class _ECGRecordingsScreenState extends State<ECGRecordingsScreen> {
   @override
   void initState() {
     super.initState();
-    // Initialize with sample recordings if none provided
-    _allRecordings = widget.initialRecordings ?? [];
+    _allRecordings = widget.initialRecordings ?? storageService.getECGRecordings();
     _filteredRecordings = List.from(_allRecordings);
   }
 
@@ -65,13 +73,216 @@ class _ECGRecordingsScreenState extends State<ECGRecordingsScreen> {
     });
   }
 
+  Future<void> _exportAsPdf(BuildContext context, ECGRecording recording) async {
+    try {
+      final pdf = pw.Document();
+
+      final ecgData = recording.ecgData;
+      final int pointsPerRow = 250;
+      final int numRows = (ecgData.length / pointsPerRow).ceil();
+      final List<List<double>> rowsData = [];
+      for (int i = 0; i < numRows; i++) {
+        final start = i * pointsPerRow;
+        final end = (start + pointsPerRow < ecgData.length) ? start + pointsPerRow : ecgData.length;
+        rowsData.add(ecgData.sublist(start, end));
+      }
+
+      pdf.addPage(
+        pw.MultiPage(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(32),
+          build: (pw.Context context) {
+            final widgets = <pw.Widget>[];
+
+            // 1. Header Section
+            widgets.add(
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'IntelIWave ECG Report',
+                    style: pw.TextStyle(
+                      fontSize: 24,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.indigo,
+                    ),
+                  ),
+                  pw.Text(
+                    DateFormat('dd/MM/yyyy HH:mm').format(recording.recordedAt),
+                    style: const pw.TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            );
+            widgets.add(pw.Divider(color: PdfColors.grey300, thickness: 1));
+            widgets.add(pw.SizedBox(height: 10));
+
+            // 2. Patient & Device Information
+            widgets.add(pw.Text('Device: ${recording.deviceName}', style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold)));
+            widgets.add(pw.Text('Recording ID: ${recording.id}', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey)));
+            widgets.add(pw.SizedBox(height: 12));
+
+            // 3. Metrics Table
+            widgets.add(
+              pw.TableHelper.fromTextArray(
+                border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+                headers: ['Metric', 'Value'],
+                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
+                cellStyle: const pw.TextStyle(fontSize: 9),
+                data: [
+                  ['Duration', recording.getFormattedDuration()],
+                  ['Average Heart Rate', '${recording.getHeartRate()} bpm'],
+                  ['Blood Pressure', '${recording.healthMetrics['systolic'] ?? '--'}/${recording.healthMetrics['diastolic'] ?? '--'}'],
+                  ['SpO2 (Oxygen Level)', '${recording.healthMetrics['oxygen'] ?? '--'}%'],
+                  ['Signal Quality', recording.healthMetrics['quality'] ?? 'N/A'],
+                ],
+              ),
+            );
+            widgets.add(pw.SizedBox(height: 15));
+
+            // 4. Waveform Title
+            widgets.add(pw.Text('Recorded ECG Waveform (Full Recording)', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)));
+            widgets.add(pw.SizedBox(height: 8));
+
+            // 5. Render rows of waveform
+            if (rowsData.isEmpty) {
+              widgets.add(
+                pw.Container(
+                  height: 60,
+                  alignment: pw.Alignment.center,
+                  decoration: pw.BoxDecoration(
+                    border: pw.Border.all(color: PdfColors.grey300),
+                  ),
+                  child: pw.Text('No ECG data points recorded', style: const pw.TextStyle(color: PdfColors.grey)),
+                ),
+              );
+            } else {
+              for (int rowIndex = 0; rowIndex < rowsData.length; rowIndex++) {
+                final rowSamples = rowsData[rowIndex];
+                final double startTime = (rowIndex * pointsPerRow) / 200.0; // 200Hz frequency
+                final double endTime = ((rowIndex * pointsPerRow) + rowSamples.length) / 200.0;
+
+                widgets.add(
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Padding(
+                        padding: const pw.EdgeInsets.only(bottom: 2, top: 6),
+                        child: pw.Text(
+                          'Strip ${rowIndex + 1} (${startTime.toStringAsFixed(1)}s - ${endTime.toStringAsFixed(1)}s)',
+                          style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey700),
+                        ),
+                      ),
+                      pw.Container(
+                        height: 90,
+                        width: 530, // Fit cleanly in A4 margins
+                        decoration: const pw.BoxDecoration(
+                          color: PdfColor.fromInt(0xFFFFF2F2),
+                        ),
+                        child: pw.CustomPaint(
+                          size: const PdfPoint(530, 90),
+                          painter: (PdfGraphics canvas, PdfPoint size) {
+                            // Draw Grid Lines
+                            // Minor grid (every 5 points)
+                            canvas.setStrokeColor(PdfColor.fromInt(0xFFFFD1D1));
+                            canvas.setLineWidth(0.4);
+                            for (double x = 0; x < size.x; x += 5) {
+                              if ((x.round() % 25) != 0) {
+                                canvas.moveTo(x, 0);
+                                canvas.lineTo(x, size.y);
+                                canvas.strokePath();
+                              }
+                            }
+                            for (double y = 0; y < size.y; y += 5) {
+                              if ((y.round() % 25) != 0) {
+                                canvas.moveTo(0, y);
+                                canvas.lineTo(size.x, y);
+                                canvas.strokePath();
+                              }
+                            }
+
+                            // Major grid (every 25 points, forming 5x5 blocks)
+                            canvas.setStrokeColor(PdfColor.fromInt(0xFFFF9494));
+                            canvas.setLineWidth(0.8);
+                            for (double x = 0; x < size.x; x += 25) {
+                              canvas.moveTo(x, 0);
+                              canvas.lineTo(x, size.y);
+                              canvas.strokePath();
+                            }
+                            for (double y = 0; y < size.y; y += 25) {
+                              canvas.moveTo(0, y);
+                              canvas.lineTo(size.x, y);
+                              canvas.strokePath();
+                            }
+
+                            // Draw Waveform Line
+                            if (rowSamples.isNotEmpty) {
+                              canvas.setStrokeColor(PdfColor.fromInt(0xFF1E1E1E));
+                              canvas.setLineWidth(1.0);
+
+                              final double step = size.x / 250.0;
+                              canvas.moveTo(0, (rowSamples[0] / 255.0) * size.y);
+                              for (int i = 1; i < rowSamples.length; i++) {
+                                final x = i * step;
+                                final y = (rowSamples[i] / 255.0) * size.y;
+                                canvas.lineTo(x, y);
+                              }
+                              canvas.strokePath();
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }
+            }
+
+            widgets.add(pw.SizedBox(height: 15));
+            widgets.add(
+              pw.Center(
+                child: pw.Text(
+                  'Total ECG Data Points: ${recording.ecgData.length} samples. This report is generated automatically by IntelIWave app.',
+                  style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey),
+                ),
+              ),
+            );
+
+            return widgets;
+          },
+        ),
+      );
+
+      final output = await getTemporaryDirectory();
+      final file = File('${output.path}/ecg_recording_${recording.id}.pdf');
+      await file.writeAsBytes(await pdf.save());
+
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: 'My IntelIWave ECG Report from ${recording.getFormattedDate()}',
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to export PDF: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.initialRecordings == null) {
+      _allRecordings = storageService.getECGRecordings();
+      _filterRecordings();
+    }
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('ECG Recordings'),
-        elevation: 0,
-      ),
+      appBar: widget.showAppBar
+          ? AppBar(
+              title: const Text('ECG Recordings'),
+              elevation: 0,
+            )
+          : null,
       body: Column(
         children: [
           // Filter Bar
@@ -115,7 +326,7 @@ class _ECGRecordingsScreenState extends State<ECGRecordingsScreen> {
                                     fontSize: 13,
                                     color: _selectedDateRange == null
                                         ? Colors.grey
-                                        : AppColors.darkGrey,
+                                        : (Theme.of(context).brightness == Brightness.dark ? Colors.white70 : AppColors.darkGrey),
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -191,7 +402,7 @@ class _ECGRecordingsScreenState extends State<ECGRecordingsScreen> {
           Icon(
             Icons.folder_open,
             size: 64,
-            color: Colors.grey[300],
+            color: AppColors.darkBorder,
           ),
           const SizedBox(height: 16),
           Text(
@@ -344,14 +555,10 @@ class _ECGRecordingsScreenState extends State<ECGRecordingsScreen> {
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Recording downloaded'),
-                        ),
-                      );
+                      _exportAsPdf(context, recording);
                     },
-                    icon: const Icon(Icons.download, size: 18),
-                    label: const Text('Export'),
+                    icon: const Icon(Icons.share, size: 18),
+                    label: const Text('Share PDF'),
                   ),
                 ),
               ],
@@ -392,55 +599,190 @@ class _ECGRecordingsScreenState extends State<ECGRecordingsScreen> {
     BuildContext context,
     ECGRecording recording,
   ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: isDark ? AppColors.darkSurface : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
       builder: (context) {
         return Container(
-          padding: const EdgeInsets.all(24),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Recording Details',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                ),
-                const SizedBox(height: 24),
-                _buildDetailRow('Device', recording.deviceName),
-                _buildDetailRow('Date', recording.getFormattedDate()),
-                _buildDetailRow('Duration', recording.getFormattedDuration()),
-                _buildDetailRow(
-                  'Heart Rate',
-                  '${recording.getHeartRate()} BPM',
-                ),
-                _buildDetailRow(
-                  'Blood Pressure',
-                  '${recording.healthMetrics['systolic']}/${recording.healthMetrics['diastolic']} mmHg',
-                ),
-                _buildDetailRow(
-                  'SpO2',
-                  '${recording.healthMetrics['oxygen']}%',
-                ),
-                _buildDetailRow(
-                  'Signal Quality',
-                  recording.healthMetrics['quality'] ?? 'N/A',
-                ),
-                if (recording.notes.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  _buildDetailRow('Notes', recording.notes),
-                ],
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Close'),
+          padding: EdgeInsets.only(
+            top: 24,
+            left: 24,
+            right: 24,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.grey[700] : Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-              ],
-            ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Recording Details',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildDetailRow('Device', recording.deviceName),
+                      _buildDetailRow('Date', recording.getFormattedDate()),
+                      _buildDetailRow('Duration', recording.getFormattedDuration()),
+                      _buildDetailRow(
+                        'Heart Rate',
+                        '${recording.getHeartRate()} BPM',
+                      ),
+                      _buildDetailRow(
+                        'Blood Pressure',
+                        '${recording.healthMetrics['systolic'] ?? '--'}/${recording.healthMetrics['diastolic'] ?? '--'} mmHg',
+                      ),
+                      _buildDetailRow(
+                        'SpO2',
+                        '${recording.healthMetrics['oxygen'] ?? '--'}%',
+                      ),
+                      _buildDetailRow(
+                        'Signal Quality',
+                        recording.healthMetrics['quality'] ?? 'N/A',
+                      ),
+                      if (recording.notes.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        _buildDetailRow('Notes', recording.notes),
+                      ],
+                      const SizedBox(height: 20),
+                      Text(
+                        'ECG Waveform',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        height: 160,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF2F2),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: const Color(0xFFFF9494),
+                            width: 1.2,
+                          ),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: recording.ecgData.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    'No ECG data recorded',
+                                    style: TextStyle(color: Colors.grey),
+                                  ),
+                                )
+                              : SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: SizedBox(
+                                    width: (recording.ecgData.length * 3.0).clamp(
+                                      MediaQuery.of(context).size.width - 48,
+                                      10000.0,
+                                    ),
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(top: 8, bottom: 8, right: 16),
+                                      child: LineChart(
+                                        LineChartData(
+                                          minX: 0,
+                                          maxX: (recording.ecgData.length - 1).toDouble(),
+                                          minY: 0,
+                                          maxY: 100,
+                                          gridData: FlGridData(
+                                            show: true,
+                                            drawVerticalLine: true,
+                                            horizontalInterval: 2,
+                                            verticalInterval: 2,
+                                            getDrawingHorizontalLine: (value) {
+                                              final isMajor = (value.round() % 10) == 0;
+                                              return FlLine(
+                                                color: isMajor 
+                                                    ? const Color(0xFFFF9494).withOpacity(0.8) 
+                                                    : const Color(0xFFFFD1D1).withOpacity(0.55),
+                                                strokeWidth: isMajor ? 1.0 : 0.5,
+                                              );
+                                            },
+                                            getDrawingVerticalLine: (value) {
+                                              final isMajor = (value.round() % 10) == 0;
+                                              return FlLine(
+                                                color: isMajor 
+                                                    ? const Color(0xFFFF9494).withOpacity(0.8) 
+                                                    : const Color(0xFFFFD1D1).withOpacity(0.55),
+                                                strokeWidth: isMajor ? 1.0 : 0.5,
+                                              );
+                                            },
+                                          ),
+                                          titlesData: const FlTitlesData(show: false),
+                                          borderData: FlBorderData(show: false),
+                                          lineBarsData: [
+                                            LineChartBarData(
+                                              spots: List.generate(
+                                                recording.ecgData.length,
+                                                (i) => FlSpot(
+                                                  i.toDouble(),
+                                                  (recording.ecgData[i] / 255.0) * 100,
+                                                ),
+                                              ),
+                                              isCurved: true,
+                                              color: const Color(0xFF1E1E1E),
+                                              barWidth: 1.5,
+                                              isStrokeCapRound: true,
+                                              dotData: const FlDotData(show: false),
+                                              belowBarData: BarAreaData(show: false),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Close'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         );
       },

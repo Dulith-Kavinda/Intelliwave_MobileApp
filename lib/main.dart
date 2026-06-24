@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:provider/provider.dart';
 import 'supabase_options.dart';
+import 'constants/index.dart';
 import 'providers/index.dart';
 import 'screens/index.dart';
 import 'utils/index.dart';
@@ -14,22 +16,32 @@ Future<void> main() async {
     await Supabase.initialize(
       url: SupabaseOptions.url,
       anonKey: SupabaseOptions.anonKey,
+      authOptions: const FlutterAuthClientOptions(
+        authFlowType: AuthFlowType.pkce,
+      ),
     );
 
     // Setup service locator
     setupServiceLocator();
 
-    // Initialize storage service
+    // Initialize storage service (required before UI loads)
     await storageService.initialize();
 
-    // Initialize Bluetooth service
-    bluetoothService.initialize();
+    // Force status bar to be transparent
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+    ));
 
     runApp(const MyApp());
+
+    // Initialize Bluetooth AFTER runApp so UI shows immediately
+    // Permission dialogs will appear after first frame is rendered
+    bluetoothService.initialize();
   } catch (e) {
     runApp(ErrorApp(error: e.toString()));
   }
 }
+
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -64,24 +76,26 @@ class MyApp extends StatelessWidget {
         builder: (context, settingsProvider, _) {
           return MaterialApp(
             title: 'IntelIWave',
-            theme: ThemeData(
-              useMaterial3: true,
-              brightness: Brightness.light,
-            ),
-            darkTheme: ThemeData(
-              useMaterial3: true,
-              brightness: Brightness.dark,
-            ),
-            themeMode: settingsProvider.themeMode,
+            theme: AppTheme.lightTheme(),
+            darkTheme: AppTheme.darkTheme(),
+            themeMode: settingsProvider.themeMode == ThemeMode.system
+              ? ThemeMode.dark // default dark when system
+              : settingsProvider.themeMode,
             home: const AppHome(),
             debugShowCheckedModeBanner: false,
             routes: {
+              '/welcome': (context) => const WelcomeScreen(),
               '/login': (context) => const LoginScreen(),
               '/register': (context) => const RegistrationScreen(),
+              '/complete_profile': (context) => const CompleteProfileScreen(),
               '/home': (context) => const HomeScreen(),
               '/settings': (context) => const SettingsScreen(),
               '/onboarding': (context) => const OnboardingScreen(),
               '/ecg_recordings': (context) => const ECGRecordingsScreen(),
+              '/terms': (context) => const TermsScreen(),
+              '/privacy': (context) => const PrivacyScreen(),
+              '/contact': (context) => const ContactScreen(),
+              '/help': (context) => const HelpScreen(),
             },
           );
         },
@@ -98,6 +112,8 @@ class AppHome extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer2<SettingsProvider, AuthProvider>(
       builder: (context, settingsProvider, authProvider, _) {
+        debugPrint('AppHome State: isLoading=${authProvider.isLoading}, welcomeShown=${settingsProvider.welcomeShown}, onboardingCompleted=${settingsProvider.onboardingCompleted}, isAuthenticated=${authProvider.isAuthenticated}, isProfileComplete=${authProvider.isProfileComplete}');
+
         // Show loading while auth state is being determined
         if (authProvider.isLoading) {
           return Scaffold(
@@ -129,6 +145,11 @@ class AppHome extends StatelessWidget {
           );
         }
 
+        // Show welcome screen for first-ever launch
+        if (!settingsProvider.welcomeShown) {
+          return const WelcomeScreen();
+        }
+
         // Show onboarding if not completed
         if (!settingsProvider.onboardingCompleted) {
           return const OnboardingScreen();
@@ -136,6 +157,9 @@ class AppHome extends StatelessWidget {
 
         // Show login or home based on auth state
         if (authProvider.isAuthenticated) {
+          if (!authProvider.isProfileComplete) {
+            return const CompleteProfileScreen();
+          }
           return const HomeScreen();
         }
 
@@ -149,7 +173,7 @@ class AppHome extends StatelessWidget {
 class ErrorApp extends StatelessWidget {
   final String error;
 
-  const ErrorApp({required this.error});
+  const ErrorApp({super.key, required this.error});
 
   @override
   Widget build(BuildContext context) {

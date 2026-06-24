@@ -211,7 +211,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: AppColors.darkGrey,
+                      color: Theme.of(context).brightness == Brightness.dark ? Colors.white : AppColors.darkGrey,
                     ),
               ),
               const SizedBox(height: 16),

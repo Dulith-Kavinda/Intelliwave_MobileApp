@@ -11,6 +11,7 @@ class SettingsProvider extends ChangeNotifier {
   static const String _lowHeartRateAlertKey = 'low_heart_rate_alert';
   static const String _darkModeKey = 'dark_mode_enabled';
   static const String _onboardingCompletedKey = 'onboarding_completed';
+  static const String _welcomeShownKey = 'welcome_shown';
 
   String _theme = 'system'; // 'light', 'dark', 'system'
   bool _notificationsEnabled = true;
@@ -19,6 +20,7 @@ class SettingsProvider extends ChangeNotifier {
   bool _lowHeartRateAlerts = true;
   bool _darkModeEnabled = false;
   bool _onboardingCompleted = false;
+  bool _welcomeShown = false;
 
   String get theme => _theme;
   bool get notificationsEnabled => _notificationsEnabled;
@@ -27,6 +29,7 @@ class SettingsProvider extends ChangeNotifier {
   bool get lowHeartRateAlerts => _lowHeartRateAlerts;
   bool get darkModeEnabled => _darkModeEnabled;
   bool get onboardingCompleted => _onboardingCompleted;
+  bool get welcomeShown => _welcomeShown;
 
   ThemeMode get themeMode {
     switch (_theme) {
@@ -58,6 +61,8 @@ class SettingsProvider extends ChangeNotifier {
         _storageService.getPreference(_darkModeKey) == 'true';
     _onboardingCompleted =
         _storageService.getPreference(_onboardingCompletedKey) == 'true';
+    _welcomeShown =
+        _storageService.getPreference(_welcomeShownKey) == 'true';
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {
@@ -111,6 +116,12 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> completeOnboarding() async {
     _onboardingCompleted = true;
     await _storageService.setPreference(_onboardingCompletedKey, 'true');
+    notifyListeners();
+  }
+
+  Future<void> completeWelcome() async {
+    _welcomeShown = true;
+    await _storageService.setPreference(_welcomeShownKey, 'true');
     notifyListeners();
   }
 }

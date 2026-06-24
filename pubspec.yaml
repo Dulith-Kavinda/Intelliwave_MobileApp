@@ -39,17 +39,18 @@ dependencies:
   
   # Supabase
   supabase_flutter: ^2.3.0
-  google_sign_in: ^6.1.6
+  sign_in_with_apple: ^8.1.0
   
   # Local Storage
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   
   # Bluetooth
-  flutter_blue_plus: ^1.31.11
+  flutter_blue_plus: ^1.35.5
   
   # Notifications
-  flutter_local_notifications: ^17.1.2
+  flutter_local_notifications: ^18.0.1
+  timezone: ^0.9.4
   
   # Date & Time
   intl: ^0.20.1
@@ -66,7 +67,7 @@ dependencies:
   cached_network_image: ^3.4.1
   
   # Sharing
-  share_plus: ^7.2.0
+  share_plus: ^10.1.4
   path_provider: ^2.1.0
   
   # Other Utilities

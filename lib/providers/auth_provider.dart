@@ -15,107 +15,153 @@ class AuthProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
 
+  // True when a browser OAuth flow has been launched and we are waiting
+  // for the deep-link callback to complete.
+  bool _isSocialAuthPending = false;
+
   User? get currentUser => _currentUser;
   UserModel? get currentUserModel => _currentUserModel;
   bool get isLoading => _isLoading;
+  bool get isSocialAuthPending => _isSocialAuthPending;
   String? get errorMessage => _errorMessage;
   bool get isAuthenticated => _currentUser != null;
 
-  AuthProvider(this._authService, this._storageService, this._userProfileService) {
+  /// Profile is complete only when all required health/contact fields are filled.
+  bool get isProfileComplete =>
+      _currentUserModel != null && _currentUserModel!.isComplete;
+
+  AuthProvider(
+      this._authService, this._storageService, this._userProfileService) {
     _isLoading = true;
     _initializeAuth();
-    // Listen for auth state changes AFTER initialization
     _setupAuthListener();
   }
 
+  // ─── Initialization ────────────────────────────────────────────────────────
+
   Future<void> _initializeAuth() async {
     try {
-      // Check if there's an existing session
       final session = Supabase.instance.client.auth.currentSession;
       if (session?.user != null) {
         _currentUser = session!.user;
-        try {
-          await _loadUserModel();
-        } catch (e) {
-          // Profile loading failed, but user is still authenticated
-        }
+        // Instant local cache hit
+        _currentUserModel = _storageService.getUser(_currentUser!.id);
       }
-    } catch (e) {
-      // Initialization error, continue gracefully
+    } catch (_) {
       _currentUser = null;
       _currentUserModel = null;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
+
+    // Non-blocking cloud sync
+    if (_currentUser != null) {
+      _refreshFromSupabaseBackground();
+    }
   }
 
-  void _setupAuthListener() {
-    // Set up auth state listener for future changes ONLY
-    // Don't use the initial state from the listener
+  Future<void> _refreshFromSupabaseBackground() async {
+    try {
+      final cloudModel =
+          await _userProfileService.getUserProfile(_currentUser!.id);
+      if (cloudModel != null) {
+        _currentUserModel = cloudModel;
+        try {
+          await _storageService.saveUser(cloudModel);
+        } catch (_) {}
+        notifyListeners();
+      }
+    } catch (_) {
+      // Network failure — local cache still shown
+    }
+  }
+
+  /// Auth state listener — handles deep-link OAuth callbacks automatically.
+  Future<void> _setupAuthListener() async {
     try {
       _authService.authStateChanges().listen(
-        (authState) {
+        (authState) async {
           final newUser = authState.session?.user;
-          
-          // Only update if there's actually a change
+          final event = authState.event;
+
+          debugPrint('Auth event: $event | user: ${newUser?.email}');
+
           if (newUser?.id != _currentUser?.id) {
             _currentUser = newUser;
-            
+            _isSocialAuthPending = false;
+
             if (_currentUser != null) {
-              _loadUserModel();
+              // Load local cache immediately for fast UI response
+              _currentUserModel = _storageService.getUser(_currentUser!.id);
+              notifyListeners();
+
+              // Check cloud for existing profile
+              _handleNewAuthUser(_currentUser!);
             } else {
               _currentUserModel = null;
+              notifyListeners();
             }
-            
+          } else if (event == AuthChangeEvent.signedIn &&
+              _isSocialAuthPending) {
+            // Same user signed in again (e.g., token refresh after deep link)
+            _isSocialAuthPending = false;
             notifyListeners();
           }
         },
-        onError: (error) {
-          // Listening error, ignore
-        },
+        onError: (_) {},
       );
-    } catch (e) {
-      // Listening setup failed, that's okay
+    } catch (_) {}
+  }
+
+  /// Called when a new authenticated user is detected.
+  /// Loads their profile if it exists; otherwise leaves model null so
+  /// [isProfileComplete] is false and the profile setup screen shows.
+  Future<void> _handleNewAuthUser(User user) async {
+    try {
+      var userModel = await _userProfileService.getUserProfile(user.id);
+
+      if (userModel == null) {
+        // Also check local cache (e.g., offline scenario)
+        userModel = _storageService.getUser(user.id);
+      }
+
+      if (userModel != null) {
+        // Existing user — sync both directions
+        _currentUserModel = userModel;
+        try {
+          await _storageService.saveUser(userModel);
+        } catch (_) {}
+      } else {
+        // Brand new social user — leave _currentUserModel = null
+        // so isProfileComplete = false → CompleteProfileScreen shows.
+        _currentUserModel = null;
+      }
+
+      notifyListeners();
+    } catch (_) {
+      // Ignore errors; _currentUserModel remains as loaded from local cache
     }
   }
 
-  /// Load user model from Supabase first, then fallback to local storage
-  Future<void> _loadUserModel() async {
+  // ─── Public refresh ────────────────────────────────────────────────────────
+
+  Future<void> refreshUserProfile() async {
+    if (_currentUser == null) return;
     try {
-      if (_currentUser != null) {
-        // Try to load from Supabase first
-        _currentUserModel = await _userProfileService.getUserProfile(_currentUser!.id);
-        
-        // If not found in Supabase, try local storage
-        if (_currentUserModel == null) {
-          _currentUserModel = _storageService.getUser(_currentUser!.id);
-          
-          // If found in local storage but not in Supabase, sync to Supabase
-          if (_currentUserModel != null) {
-            try {
-              await _userProfileService.saveUserProfile(_currentUserModel!);
-            } catch (e) {
-              // Ignore sync errors
-            }
-          }
-        } else {
-          // Also sync to local storage for offline access
-          if (_currentUserModel != null) {
-            try {
-              await _storageService.saveUser(_currentUserModel!);
-            } catch (e) {
-              // Ignore sync errors
-            }
-          }
-        }
+      final cloudModel =
+          await _userProfileService.getUserProfile(_currentUser!.id);
+      if (cloudModel != null) {
+        _currentUserModel = cloudModel;
+        try {
+          await _storageService.saveUser(cloudModel);
+        } catch (_) {}
+        notifyListeners();
       }
-      notifyListeners();
-    } catch (e) {
-      // Don't throw, just log silently if profile loading fails
-      // The user is still authenticated even without a full profile
-    }
+    } catch (_) {}
   }
+
+  // ─── Email Auth ────────────────────────────────────────────────────────────
 
   Future<void> signUp({
     required String email,
@@ -141,7 +187,7 @@ class AuthProvider extends ChangeNotifier {
 
       if (response.user != null) {
         _currentUser = response.user;
-        
+
         final userModel = UserModel(
           uid: response.user!.id,
           email: email,
@@ -157,12 +203,10 @@ class AuthProvider extends ChangeNotifier {
           updatedAt: DateTime.now(),
         );
 
-        // Save to both Supabase and local storage
         await _userProfileService.saveUserProfile(userModel);
         await _storageService.saveUser(userModel);
-
         _currentUserModel = userModel;
-        
+
         _isLoading = false;
         notifyListeners();
       }
@@ -187,43 +231,28 @@ class AuthProvider extends ChangeNotifier {
         email: email,
         password: password,
       );
-      
-      // Set current user immediately from response
+
       _currentUser = response.user;
-      
-      // Wait a moment for session to be established
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      // Verify the session is still there
+
+      await Future.delayed(const Duration(milliseconds: 300));
+
       final verifySession = Supabase.instance.client.auth.currentSession;
       if (verifySession?.user == null) {
         throw Exception('Session was not established. Please try again.');
       }
-      
-      // Try to load profile, but don't fail if it doesn't exist
+
       if (_currentUser != null) {
         try {
-          await _loadUserModel();
-        } catch (profileError) {
-          // Profile might not exist yet, that's okay
-          // Just set a minimal user model
-          _currentUserModel = UserModel(
-            uid: _currentUser!.id,
-            email: _currentUser!.email ?? email,
-            name: email.split('@')[0],
-            birthday: DateTime.now(),
-            weight: 0,
-            height: 0,
-            bloodGroup: '',
-            phoneNumber: '',
-            address: '',
-            gender: '',
-            createdAt: DateTime.now(),
-            updatedAt: DateTime.now(),
-          );
-        }
+          final cloudModel =
+              await _userProfileService.getUserProfile(_currentUser!.id);
+          _currentUserModel =
+              cloudModel ?? _storageService.getUser(_currentUser!.id);
+          if (_currentUserModel != null) {
+            await _storageService.saveUser(_currentUserModel!);
+          }
+        } catch (_) {}
       }
-      
+
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -236,51 +265,44 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  // ─── Social Auth (Browser OAuth) ───────────────────────────────────────────
+
+  /// Launches the browser for Google OAuth.
+  /// Session is received asynchronously via the auth state listener.
+  /// Caller should NOT navigate manually — AppHome handles it reactively.
   Future<void> signInWithGoogle() async {
+    _errorMessage = null;
+    _isSocialAuthPending = true;
+    notifyListeners();
+
+    try {
+      final launched = await _authService.signInWithGoogle();
+      if (!launched) {
+        // Browser failed to open
+        _isSocialAuthPending = false;
+        _errorMessage = 'Could not open Google Sign-In. Please try again.';
+        notifyListeners();
+      }
+      // If launched successfully, we just wait for the deep-link callback.
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isSocialAuthPending = false;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  /// Apple Sign-In (native). Session is returned directly.
+  Future<void> signInWithApple() async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      final response = await _authService.signInWithGoogle();
+      final response = await _authService.signInWithApple();
       if (response != null && response.user != null) {
-        final user = response.user;
-        _currentUser = user;
-        
-        // Check if user exists in Supabase first
-        var userModel = await _userProfileService.getUserProfile(user!.id);
-        
-        // If not in Supabase, check local storage
-        if (userModel == null) {
-          userModel = _storageService.getUser(user.id);
-        }
-        
-        if (userModel == null) {
-          // Create new user in both Supabase and local storage
-          userModel = UserModel(
-            uid: user.id,
-            email: user.email ?? '',
-            name: user.userMetadata?['name'] ?? 'User',
-            birthday: DateTime.now(),
-            weight: 0,
-            height: 0,
-            bloodGroup: '',
-            phoneNumber: '',
-            address: '',
-            gender: '',
-            createdAt: DateTime.now(),
-            updatedAt: DateTime.now(),
-          );
-
-          await _userProfileService.saveUserProfile(userModel);
-          await _storageService.saveUser(userModel);
-        } else {
-          // Ensure profile is in both places
-          await _userProfileService.saveUserProfile(userModel);
-          await _storageService.saveUser(userModel);
-        }
-        
-        _currentUserModel = userModel;
+        _currentUser = response.user;
+        await _handleNewAuthUser(_currentUser!);
       }
 
       _isLoading = false;
@@ -292,6 +314,30 @@ class AuthProvider extends ChangeNotifier {
       rethrow;
     }
   }
+
+  /// Launches the browser for Facebook OAuth.
+  /// Session is received asynchronously via the auth state listener.
+  Future<void> signInWithFacebook() async {
+    _errorMessage = null;
+    _isSocialAuthPending = true;
+    notifyListeners();
+
+    try {
+      final launched = await _authService.signInWithFacebook();
+      if (!launched) {
+        _isSocialAuthPending = false;
+        _errorMessage = 'Could not open Facebook Sign-In. Please try again.';
+        notifyListeners();
+      }
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isSocialAuthPending = false;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  // ─── Profile Updates ───────────────────────────────────────────────────────
 
   Future<void> updateUserProfile({
     required String name,
@@ -309,25 +355,39 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      if (_currentUserModel != null) {
-        final updatedUser = _currentUserModel!.copyWith(
-          name: name,
-          birthday: birthday,
-          weight: weight,
-          height: height,
-          bloodGroup: bloodGroup,
-          phoneNumber: phoneNumber,
-          address: address,
-          gender: gender,
-          profilePictureUrl: profilePictureUrl,
-          updatedAt: DateTime.now(),
-        );
+      // Build model — use currentUserModel if it exists, or create from scratch
+      final base = _currentUserModel ??
+          UserModel(
+            uid: _currentUser!.id,
+            email: _currentUser?.email ?? '',
+            name: name,
+            birthday: birthday,
+            weight: weight,
+            height: height,
+            bloodGroup: bloodGroup,
+            phoneNumber: phoneNumber,
+            address: address,
+            gender: gender,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          );
 
-        // Save to both Supabase and local storage
-        await _userProfileService.saveUserProfile(updatedUser);
-        await _storageService.saveUser(updatedUser);
-        _currentUserModel = updatedUser;
-      }
+      final updatedUser = base.copyWith(
+        name: name,
+        birthday: birthday,
+        weight: weight,
+        height: height,
+        bloodGroup: bloodGroup,
+        phoneNumber: phoneNumber,
+        address: address,
+        gender: gender,
+        profilePictureUrl: profilePictureUrl,
+        updatedAt: DateTime.now(),
+      );
+
+      await _userProfileService.saveUserProfile(updatedUser);
+      await _storageService.saveUser(updatedUser);
+      _currentUserModel = updatedUser;
 
       _isLoading = false;
       notifyListeners();
@@ -365,7 +425,6 @@ class AuthProvider extends ChangeNotifier {
 
     try {
       if (_currentUserModel != null) {
-        // Delete from both Supabase and local storage
         await _userProfileService.deleteUserProfile(_currentUserModel!.uid);
         await _storageService.deleteUser(_currentUserModel!.uid);
       }
@@ -387,6 +446,7 @@ class AuthProvider extends ChangeNotifier {
       await _authService.signOut();
       _currentUser = null;
       _currentUserModel = null;
+      _isSocialAuthPending = false;
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();

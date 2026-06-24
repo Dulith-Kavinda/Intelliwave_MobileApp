@@ -1,9 +1,10 @@
+﻿import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../../constants/app_theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/common_widgets.dart';
+import '../../utils/service_locator.dart';
 
 class RegistrationScreen extends StatefulWidget {
   const RegistrationScreen({Key? key}) : super(key: key);
@@ -31,6 +32,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   double _weight = 70;
   double _height = 170;
   bool _obscurePassword = true;
+  File? _selectedProfileImage;
 
   final List<String> _genders = ['Male', 'Female', 'Other'];
   final List<String> _bloodGroups = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
@@ -74,6 +76,64 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     ),
               ),
               const SizedBox(height: 16),
+              // Optional Profile Photo
+              Center(
+                child: Column(
+                  children: [
+                    GestureDetector(
+                      onTap: _pickProfileImage,
+                      child: Stack(
+                        alignment: Alignment.bottomRight,
+                        children: [
+                          Container(
+                            width: 90,
+                            height: 90,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: AppColors.lightGrey,
+                              image: _selectedProfileImage != null
+                                  ? DecorationImage(
+                                      image: FileImage(_selectedProfileImage!),
+                                      fit: BoxFit.cover,
+                                    )
+                                  : null,
+                              border: Border.all(
+                                color: AppColors.primary.withOpacity(0.3),
+                                width: 2,
+                              ),
+                            ),
+                            child: _selectedProfileImage == null
+                                ? const Icon(Icons.person,
+                                    size: 40, color: AppColors.grey)
+                                : null,
+                          ),
+                          Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: AppColors.primary,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                            child: const Icon(Icons.camera_alt,
+                                size: 14, color: Colors.white),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _selectedProfileImage == null
+                          ? 'Add Photo (Optional)'
+                          : 'Tap to Change',
+                      style: const TextStyle(
+                          color: AppColors.grey, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
               TextFormField(
                 controller: _nameController,
                 decoration: const InputDecoration(
@@ -120,7 +180,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                 'Birthday',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w500,
-                      color: Colors.grey[700],
+                      color: AppColors.darkBorder2,
                     ),
               ),
               const SizedBox(height: 8),
@@ -431,6 +491,54 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     }
   }
 
+  void _pickProfileImage() async {
+    final choice = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 20),
+            ListTile(
+              leading: const Icon(Icons.camera_alt, color: AppColors.primary),
+              title: const Text('Take Photo'),
+              onTap: () => Navigator.pop(ctx, 'camera'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library, color: AppColors.info),
+              title: const Text('Choose from Gallery'),
+              onTap: () => Navigator.pop(ctx, 'gallery'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    if (choice == null || !mounted) return;
+    try {
+      final file = choice == 'camera'
+          ? await imageUploadService.pickImageFromCamera()
+          : await imageUploadService.pickImageFromGallery();
+      if (file != null && mounted) {
+        setState(() => _selectedProfileImage = file);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to pick image: ${e.toString()}')),
+        );
+      }
+    }
+  }
+
   void _handleRegister(BuildContext context, AuthProvider authProvider) async {
     if (!_formKey.currentState!.validate()) return;
     
@@ -456,6 +564,32 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         gender: _selectedGender!,
       );
 
+      // Upload profile photo if one was selected (non-critical)
+      if (_selectedProfileImage != null && mounted) {
+        try {
+          final userId = authProvider.currentUser?.id;
+          if (userId != null) {
+            final url = await imageUploadService.uploadProfileImage(
+              userId: userId,
+              imageFile: _selectedProfileImage!,
+            );
+            await authProvider.updateUserProfile(
+              name: _nameController.text,
+              birthday: birthday,
+              weight: _weight,
+              height: _height,
+              bloodGroup: _selectedBloodGroup!,
+              phoneNumber: _phoneController.text,
+              address: _addressController.text,
+              gender: _selectedGender!,
+              profilePictureUrl: url,
+            );
+          }
+        } catch (_) {
+          // Image upload failure is non-critical
+        }
+      }
+
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/home');
       }
@@ -468,3 +602,4 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     }
   }
 }
+

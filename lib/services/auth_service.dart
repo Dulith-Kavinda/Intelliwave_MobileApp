@@ -1,9 +1,10 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 class AuthService {
   final _supabase = Supabase.instance.client;
-  final GoogleSignIn _googleSignIn = GoogleSignIn();
+
+  // ─── Email Auth ────────────────────────────────────────────────────────────
 
   Future<AuthResponse> signUpWithEmail({
     required String email,
@@ -33,33 +34,75 @@ class AuthService {
     }
   }
 
-  Future<AuthResponse?> signInWithGoogle() async {
+  // ─── Social Auth (Browser OAuth) ───────────────────────────────────────────
+
+  /// Opens the system browser for Google OAuth (PKCE flow).
+  /// Returns true if the browser was launched successfully.
+  /// The actual session arrives asynchronously via [authStateChanges].
+  Future<bool> signInWithGoogle() async {
     try {
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      
-      if (googleUser == null) return null;
-
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
-
-      if (googleAuth.idToken == null) {
-        throw Exception('Failed to get Google ID token');
-      }
-
-      return await _supabase.auth.signInWithIdToken(
-        provider: OAuthProvider.google,
-        idToken: googleAuth.idToken!,
-        accessToken: googleAuth.accessToken,
+      final launched = await _supabase.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: 'io.supabase.flutter://login-callback/',
+        authScreenLaunchMode: LaunchMode.externalApplication,
       );
+      return launched;
     } on AuthException catch (e) {
       throw _handleAuthException(e);
+    } catch (e) {
+      throw Exception('Google Sign In failed: ${e.toString()}');
     }
   }
+
+  /// Apple Sign-In uses native credential flow (no Firebase needed).
+  /// Returns an AuthResponse on success, or null if user cancels.
+  Future<AuthResponse?> signInWithApple() async {
+    try {
+      final credential = await SignInWithApple.getAppleIDCredential(
+        scopes: [
+          AppleIDAuthorizationScopes.email,
+          AppleIDAuthorizationScopes.fullName,
+        ],
+      );
+
+      return await _supabase.auth.signInWithIdToken(
+        provider: OAuthProvider.apple,
+        idToken: credential.identityToken!,
+      );
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code == AuthorizationErrorCode.canceled) {
+        return null; // User cancelled — not an error
+      }
+      throw Exception('Apple Sign In failed: ${e.message}');
+    } on AuthException catch (e) {
+      throw _handleAuthException(e);
+    } catch (e) {
+      throw Exception('Apple Sign In failed: ${e.toString()}');
+    }
+  }
+
+  /// Opens the system browser for Facebook OAuth (PKCE flow).
+  /// The actual session arrives asynchronously via [authStateChanges].
+  Future<bool> signInWithFacebook() async {
+    try {
+      final launched = await _supabase.auth.signInWithOAuth(
+        OAuthProvider.facebook,
+        redirectTo: 'io.supabase.flutter://login-callback/',
+        authScreenLaunchMode: LaunchMode.externalApplication,
+      );
+      return launched;
+    } on AuthException catch (e) {
+      throw _handleAuthException(e);
+    } catch (e) {
+      throw Exception('Facebook Sign In failed: ${e.toString()}');
+    }
+  }
+
+  // ─── Session / User ────────────────────────────────────────────────────────
 
   Future<void> signOut() async {
     try {
       await _supabase.auth.signOut();
-      await _googleSignIn.signOut();
     } catch (e) {
       throw Exception('Sign out failed: $e');
     }
@@ -91,15 +134,16 @@ class AuthService {
     return _supabase.auth.onAuthStateChange;
   }
 
+  // ─── Error Handling ────────────────────────────────────────────────────────
+
   String _handleAuthException(AuthException e) {
-    // Check for rate limit or too many requests
-    if (e.message.toLowerCase().contains('rate') || 
+    if (e.message.toLowerCase().contains('rate') ||
         e.message.toLowerCase().contains('too many') ||
         e.code == 'over_email_send_rate_limit' ||
         e.code == 'over_request_rate_limit') {
       return 'Too many login attempts. Please wait a few minutes before trying again.';
     }
-    
+
     switch (e.code) {
       case 'weak_password':
         return 'The password provided is too weak.';

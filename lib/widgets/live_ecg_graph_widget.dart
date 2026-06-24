@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:provider/provider.dart';
 import '../constants/app_theme.dart';
+import '../providers/index.dart';
 
 class LiveECGGraphWidget extends StatelessWidget {
   final List<int> ecgData;
@@ -77,7 +79,7 @@ class LiveECGGraphWidget extends StatelessWidget {
               Text(
                 'No Device Connected',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: isDarkTheme ? Colors.grey[300] : Colors.grey[700],
+                      color: isDarkTheme ? AppColors.darkBorder : AppColors.darkBorder2,
                       fontWeight: FontWeight.bold,
                     ),
               ),
@@ -162,7 +164,9 @@ class LiveECGGraphWidget extends StatelessWidget {
 
   Widget _buildGraphCard(BuildContext context) {
     final spots = _generateChartSpots();
-    final screenHeight = MediaQuery.of(context).size.height / 4;
+    final screenHeight = MediaQuery.of(context).orientation == Orientation.landscape
+        ? 180.0
+        : (MediaQuery.of(context).size.height / 4).clamp(160.0, 300.0);
 
     return SizedBox(
       height: screenHeight,
@@ -235,94 +239,52 @@ class LiveECGGraphWidget extends StatelessWidget {
             Expanded(
               child: LineChart(
                 LineChartData(
+                  minX: 0,
+                  maxX: 99,
+                  minY: 0,
+                  maxY: 100,
+                  backgroundColor: const Color(0xFFFFF2F2),
                   gridData: FlGridData(
                     show: true,
                     drawVerticalLine: true,
-                    horizontalInterval: 20,
-                    verticalInterval: 10,
+                    horizontalInterval: 2,
+                    verticalInterval: 2,
                     getDrawingHorizontalLine: (value) {
+                      final isMajor = (value.round() % 10) == 0;
                       return FlLine(
-                        color: Colors.grey[300],
-                        strokeWidth: 0.5,
+                        color: isMajor 
+                            ? const Color(0xFFFF9494).withOpacity(0.8) 
+                            : const Color(0xFFFFD1D1).withOpacity(0.55),
+                        strokeWidth: isMajor ? 1.0 : 0.5,
                       );
                     },
                     getDrawingVerticalLine: (value) {
+                      final isMajor = (value.round() % 10) == 0;
                       return FlLine(
-                        color: Colors.grey[300],
-                        strokeWidth: 0.5,
+                        color: isMajor 
+                            ? const Color(0xFFFF9494).withOpacity(0.8) 
+                            : const Color(0xFFFFD1D1).withOpacity(0.55),
+                        strokeWidth: isMajor ? 1.0 : 0.5,
                       );
                     },
                   ),
-                  titlesData: FlTitlesData(
-                    show: true,
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 30,
-                        interval: spots.length > 50 ? spots.length / 5 : 10,
-                        getTitlesWidget: (value, meta) {
-                          return Text(
-                            value.toInt().toString(),
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey,
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 40,
-                        interval: 20,
-                        getTitlesWidget: (value, meta) {
-                          return Text(
-                            value.toInt().toString(),
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey,
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    topTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    rightTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
+                  titlesData: const FlTitlesData(
+                    show: false,
                   ),
-                  borderData: FlBorderData(show: true),
+                  borderData: FlBorderData(show: false),
                   lineBarsData: [
                     LineChartBarData(
                       spots: spots.isEmpty
-                          ? [const FlSpot(0, 0)]
+                          ? [const FlSpot(0, 50)]
                           : spots,
                       isCurved: true,
-                      color: AppColors.primary,
-                      barWidth: 2,
+                      color: const Color(0xFF1E1E1E), // Dark charcoal ECG line trace
+                      barWidth: 1.5,
                       isStrokeCapRound: true,
-                      dotData: FlDotData(
-                        show: spots.length < 20,
-                        getDotPainter: (spot, percent, barData, index) {
-                          return FlDotCirclePainter(
-                            radius: 3,
-                            color: AppColors.primary,
-                            strokeWidth: 1,
-                            strokeColor: Colors.white,
-                          );
-                        },
-                      ),
-                      belowBarData: BarAreaData(
-                        show: true,
-                        color: AppColors.primary.withOpacity(0.1),
-                      ),
+                      dotData: const FlDotData(show: false),
+                      belowBarData: BarAreaData(show: false),
                     ),
                   ],
-                  minY: 0,
-                  maxY: 100,
                 ),
               ),
             ),
@@ -343,16 +305,16 @@ class LiveECGGraphWidget extends StatelessWidget {
 
 /// Full screen ECG graph display
 class FullscreenECGGraph extends StatelessWidget {
-  final List<int> ecgData;
-  final bool isConnected;
-  final bool hasError;
+  final List<int>? ecgData;
+  final bool? isConnected;
+  final bool? hasError;
   final String? errorMessage;
 
   const FullscreenECGGraph({
     Key? key,
-    required this.ecgData,
-    required this.isConnected,
-    required this.hasError,
+    this.ecgData,
+    this.isConnected,
+    this.hasError,
     this.errorMessage,
   }) : super(key: key);
 
@@ -368,12 +330,16 @@ class FullscreenECGGraph extends StatelessWidget {
         ),
       ),
       body: SafeArea(
-        child: LiveECGGraphWidget(
-          ecgData: ecgData,
-          isConnected: isConnected,
-          hasError: hasError,
-          errorMessage: errorMessage,
-          isFullscreen: true,
+        child: Consumer2<BluetoothProvider, ECGProvider>(
+          builder: (context, btProvider, ecgProvider, _) {
+            return LiveECGGraphWidget(
+              ecgData: ecgProvider.ecgData,
+              isConnected: btProvider.isConnected,
+              hasError: ecgProvider.hasDataError,
+              errorMessage: ecgProvider.errorMessage,
+              isFullscreen: true,
+            );
+          },
         ),
       ),
     );

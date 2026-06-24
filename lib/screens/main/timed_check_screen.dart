@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../constants/app_theme.dart';
 import '../../providers/timed_check_provider.dart';
 import '../../models/timed_check_session.dart';
+import '../../providers/auth_provider.dart';
 
 class TimedCheckScreen extends StatefulWidget {
   const TimedCheckScreen({Key? key}) : super(key: key);
@@ -156,15 +157,14 @@ class _TimedCheckScreenState extends State<TimedCheckScreen> {
     BuildContext context,
     TimedCheckProvider timedCheckProvider,
   ) async {
-    // Logging disabled for performance
-    // print('Starting $_selectedDuration minute health check');
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final userId = authProvider.currentUserModel?.uid ?? 'test_user';
 
     // Start timed check session
-    // Note: Replace with actual user ID from auth provider
-    // timedCheckProvider.startTimedCheck(
-    //   userId: authProvider.currentUserModel?.uid ?? 'test_user',
-    //   durationMinutes: _selectedDuration,
-    // );
+    timedCheckProvider.startTimedCheck(
+      userId: userId,
+      durationMinutes: _selectedDuration,
+    );
   }
 }
 

@@ -1,12 +1,13 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
+import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'dart:async';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
-  
+
   late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
-  
+
   factory NotificationService() {
     return _instance;
   }
@@ -17,22 +18,23 @@ class NotificationService {
   }
 
   Future<void> _initializeNotifications() async {
+    // Initialize timezone data
+    tz_data.initializeTimeZones();
+
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    final DarwinInitializationSettings initializationSettingsIOS =
-        DarwinInitializationSettings(
-      onDidReceiveLocalNotification: (id, title, body, payload) async {},
-    );
+    // onDidReceiveLocalNotification was removed in flutter_local_notifications v18
+    const DarwinInitializationSettings initializationSettingsIOS =
+        DarwinInitializationSettings();
 
-    final InitializationSettings initializationSettings =
-        InitializationSettings(
+    const InitializationSettings initializationSettings = InitializationSettings(
       android: initializationSettingsAndroid,
       iOS: initializationSettingsIOS,
     );
 
     await flutterLocalNotificationsPlugin.initialize(initializationSettings);
-    
+
     // Create notification channels for Android
     const AndroidNotificationChannel channel = AndroidNotificationChannel(
       'high_importance_channel',
@@ -58,7 +60,8 @@ class NotificationService {
         AndroidNotificationDetails(
       'high_importance_channel',
       'High Importance Notifications',
-      channelDescription: 'This channel is used for important health notifications',
+      channelDescription:
+          'This channel is used for important health notifications',
       importance: Importance.high,
       priority: Priority.high,
       showWhen: true,
@@ -96,7 +99,8 @@ class NotificationService {
         AndroidNotificationDetails(
       'high_importance_channel',
       'High Importance Notifications',
-      channelDescription: 'This channel is used for important health notifications',
+      channelDescription:
+          'This channel is used for important health notifications',
     );
 
     const DarwinNotificationDetails iOSPlatformChannelSpecifics =
@@ -159,7 +163,8 @@ class NotificationService {
     await showNotification(
       id: DateTime.now().millisecond,
       title: isConnected ? '✅ Device Connected' : '❌ Device Disconnected',
-      body: '$deviceName ${isConnected ? 'connected successfully' : 'disconnected'}',
+      body:
+          '$deviceName ${isConnected ? 'connected successfully' : 'disconnected'}',
       payload: 'device_alert',
     );
   }

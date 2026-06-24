@@ -59,6 +59,17 @@ class UserModel {
     required this.updatedAt,
   });
 
+  /// Returns true when all required user-entered fields are filled.
+  /// weight and height are excluded — they always have slider defaults.
+  bool get isComplete {
+    return name.trim().isNotEmpty &&
+        phoneNumber.trim().isNotEmpty &&
+        address.trim().isNotEmpty &&
+        gender.trim().isNotEmpty &&
+        bloodGroup.trim().isNotEmpty;
+  }
+
+
   // Convert to JSON for Firestore
   Map<String, dynamic> toMap() {
     return {
@@ -79,20 +90,27 @@ class UserModel {
   }
 
   factory UserModel.fromMap(Map<String, dynamic> map) {
+    DateTime _parseDate(dynamic value) {
+      if (value == null) return DateTime.now();
+      if (value is DateTime) return value;
+      if (value is String) return DateTime.tryParse(value) ?? DateTime.now();
+      return DateTime.now();
+    }
+
     return UserModel(
-      uid: map['uid'] ?? '',
+      uid: map['uid'] ?? map['id'] ?? '',
       email: map['email'] ?? '',
       name: map['name'] ?? '',
-      birthday: map['birthday']?.toDate() ?? DateTime.now(),
-      weight: map['weight']?.toDouble() ?? 0.0,
-      height: map['height']?.toDouble() ?? 0.0,
-      bloodGroup: map['bloodGroup'] ?? '',
-      phoneNumber: map['phoneNumber'] ?? '',
-      profilePictureUrl: map['profilePictureUrl'],
+      birthday: _parseDate(map['birthday']),
+      weight: (map['weight'] ?? 0).toDouble(),
+      height: (map['height'] ?? 0).toDouble(),
+      bloodGroup: map['bloodGroup'] ?? map['blood_group'] ?? '',
+      phoneNumber: map['phoneNumber'] ?? map['phone_number'] ?? '',
+      profilePictureUrl: map['profilePictureUrl'] ?? map['profile_picture_url'],
       address: map['address'] ?? '',
       gender: map['gender'] ?? '',
-      createdAt: map['createdAt']?.toDate() ?? DateTime.now(),
-      updatedAt: map['updatedAt']?.toDate() ?? DateTime.now(),
+      createdAt: _parseDate(map['createdAt'] ?? map['created_at']),
+      updatedAt: _parseDate(map['updatedAt'] ?? map['updated_at']),
     );
   }
 
