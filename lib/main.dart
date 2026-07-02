@@ -112,8 +112,6 @@ class AppHome extends StatelessWidget {
   Widget build(BuildContext context) {
     return Consumer2<SettingsProvider, AuthProvider>(
       builder: (context, settingsProvider, authProvider, _) {
-        debugPrint('AppHome State: isLoading=${authProvider.isLoading}, welcomeShown=${settingsProvider.welcomeShown}, onboardingCompleted=${settingsProvider.onboardingCompleted}, isAuthenticated=${authProvider.isAuthenticated}, isProfileComplete=${authProvider.isProfileComplete}');
-
         // Show loading while auth state is being determined
         if (authProvider.isLoading) {
           return Scaffold(

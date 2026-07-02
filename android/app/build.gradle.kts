@@ -25,11 +25,8 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.inteliwave_app"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = flutter.minSdkVersion // BLE requires API 21+
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -37,15 +34,36 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Sign with debug keys for now (replace with your keystore for Play Store)
             signingConfig = signingConfigs.getByName("debug")
+
+            // ── R8 code shrinking & obfuscation ──────────────────────────────
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
+
+        debug {
+            // Keep debug fast — no minification
+            isMinifyEnabled = false
+            isShrinkResources = false
+        }
+    }
+
+    // ── Bundle optimisation (for Play Store AAB) ──────────────────────────────
+    bundle {
+        language { enableSplit = true }
+        density  { enableSplit = true }
+        abi      { enableSplit = true }
     }
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
+    // Slim NIO variant — avoids shipping the full JDK desugaring library
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.1.4")
 }
 
 flutter {

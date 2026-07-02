@@ -191,13 +191,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
-                                'Device not connected. Please connect your ECG device to continue.',
+                                'No device connected. Power on your HM-10 module, then tap the Bluetooth icon to connect.',
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: Colors.red[700],
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
+                            ),
+                            // Quick connect button
+                            TextButton.icon(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => const DeviceScannerScreen()),
+                              ),
+                              icon: const Icon(Icons.bluetooth_searching,
+                                  size: 16, color: Colors.red),
+                              label: Text('Connect',
+                                  style: TextStyle(
+                                      fontSize: 12, color: Colors.red[700])),
+                              style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4)),
                             ),
                           ],
                         ),
@@ -245,12 +261,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Real-Time ECG Monitor',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Real-Time ECG Monitor',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            // HM-10 connection badge
+            if (btProvider.isConnected && btProvider.isHM10Device)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00C853).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                      color:
+                          const Color(0xFF00C853).withValues(alpha: 0.35)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF00C853),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    const Text(
+                      'HM-10 Serial',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF00C853),
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
         ),
         const SizedBox(height: 16),
         LiveECGGraphWidget(

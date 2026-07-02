@@ -43,7 +43,7 @@ class AuthService {
     try {
       final launched = await _supabase.auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: 'io.supabase.flutter://login-callback/',
+        redirectTo: 'com.example.inteliwaveapp://login-callback/',
         authScreenLaunchMode: LaunchMode.externalApplication,
       );
       return launched;
@@ -87,7 +87,7 @@ class AuthService {
     try {
       final launched = await _supabase.auth.signInWithOAuth(
         OAuthProvider.facebook,
-        redirectTo: 'io.supabase.flutter://login-callback/',
+        redirectTo: 'com.example.inteliwaveapp://login-callback/',
         authScreenLaunchMode: LaunchMode.externalApplication,
       );
       return launched;
