@@ -30,6 +30,11 @@ android {
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        ndk {
+            // Include arm64-v8a and armeabi-v7a for physical devices, x86_64 for emulator.
+            abiFilters.addAll(setOf("arm64-v8a", "armeabi-v7a", "x86_64"))
+        }
     }
 
     buildTypes {

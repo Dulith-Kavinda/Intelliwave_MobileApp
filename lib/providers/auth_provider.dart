@@ -350,7 +350,6 @@ class AuthProvider extends ChangeNotifier {
     required String gender,
     String? profilePictureUrl,
   }) async {
-    _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
@@ -389,11 +388,9 @@ class AuthProvider extends ChangeNotifier {
       await _storageService.saveUser(updatedUser);
       _currentUserModel = updatedUser;
 
-      _isLoading = false;
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();
-      _isLoading = false;
       notifyListeners();
       rethrow;
     }

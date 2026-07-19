@@ -10,3 +10,4 @@ export 'terms_screen.dart';
 export 'privacy_screen.dart';
 export 'contact_screen.dart';
 export 'help_screen.dart';
+export 'ai_bot_screen.dart';

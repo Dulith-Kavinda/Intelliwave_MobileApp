@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -7,25 +8,53 @@ import 'constants/index.dart';
 import 'providers/index.dart';
 import 'screens/index.dart';
 import 'utils/index.dart';
+import 'utils/service_locator.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // ── Global Error Boundaries ──────────────────────────────────────────────
+  // Intercept uncaught Flutter framework and asynchronous errors to prevent
+  // the native process from abruptly quitting on physical mobile devices.
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('[FlutterError] Intercepted: ${details.exceptionAsString()}');
+  };
+
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('[PlatformDispatcher] Intercepted unhandled error: $error\n$stack');
+    return true; // Mark as handled to prevent native crash/exit
+  };
+
   try {
-    // Initialize Supabase
-    await Supabase.initialize(
-      url: SupabaseOptions.url,
-      anonKey: SupabaseOptions.anonKey,
-      authOptions: const FlutterAuthClientOptions(
-        authFlowType: AuthFlowType.pkce,
-      ),
-    );
+    // Initialize Supabase with fallback log
+    try {
+      await Supabase.initialize(
+        url: SupabaseOptions.url,
+        anonKey: SupabaseOptions.anonKey,
+        authOptions: const FlutterAuthClientOptions(
+          authFlowType: AuthFlowType.pkce,
+        ),
+      );
+    } catch (supaErr) {
+      debugPrint('[Supabase] Initialisation notice: $supaErr');
+    }
 
     // Setup service locator
     setupServiceLocator();
 
     // Initialize storage service (required before UI loads)
     await storageService.initialize();
+
+    // Initialize ECG AI inference model safely in the background.
+    ecgInferenceService.initialize().catchError((e) {
+      debugPrint('[EcgInferenceService] Init error: $e');
+    });
+
+    // Check and fire the daily AI health summary safely.
+    aiSummaryService.checkAndSendDailySummary().catchError((e) {
+      debugPrint('[AiSummaryService] Summary error: $e');
+    });
 
     // Force status bar to be transparent
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -34,10 +63,12 @@ Future<void> main() async {
 
     runApp(const MyApp());
 
-    // Initialize Bluetooth AFTER runApp so UI shows immediately
-    // Permission dialogs will appear after first frame is rendered
-    bluetoothService.initialize();
-  } catch (e) {
+    // Initialize Bluetooth AFTER runApp safely so UI shows immediately
+    bluetoothService.initialize().catchError((e) {
+      debugPrint('[BluetoothService] Init error: $e');
+    });
+  } catch (e, stack) {
+    debugPrint('[Main] Critical startup error: $e\n$stack');
     runApp(ErrorApp(error: e.toString()));
   }
 }
@@ -63,7 +94,7 @@ class MyApp extends StatelessWidget {
           create: (_) => HeartbeatProvider(storageService),
         ),
         ChangeNotifierProvider(
-          create: (_) => NotificationProvider(storageService),
+          create: (_) => getIt<NotificationProvider>(),
         ),
         ChangeNotifierProvider(
           create: (_) => SettingsProvider(storageService),
@@ -121,6 +152,13 @@ class AppHome extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const CircularProgressIndicator(),
+                  const SizedBox(height: 32),
+                   Image.asset(
+                    'assets/images/app_logo.png',
+                    width: 120,
+                    height: 120,
+                    fit: BoxFit.contain,
+                  ),
                   const SizedBox(height: 24),
                   const Text(
                     'IntelIWave',

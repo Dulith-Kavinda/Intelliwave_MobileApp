@@ -3,3 +3,4 @@ export 'bluetooth_service.dart';
 export 'storage_service.dart';
 export 'notification_service.dart';
 export 'user_profile_service.dart';
+export 'ai_summary_service.dart';

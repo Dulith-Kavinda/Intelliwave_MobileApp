@@ -45,6 +45,14 @@
 -keep class com.example.printing.** { *; }
 -dontwarn org.apache.fop.**
 
+# ─── PyTorch Lite & Pigeon ───────────────────────────────────────────────────
+-keep class com.linusu.pytorch_lite.** { *; }
+-keep class org.pytorch.** { *; }
+-dontwarn org.pytorch.**
+-dontwarn com.linusu.pytorch_lite.**
+-keep class * implements com.linusu.pytorch_lite.Pigeon* { *; }
+-keep class com.linusu.pytorch_lite.Pigeon* { *; }
+
 # ─── General ──────────────────────────────────────────────────────────────────
 # Keep line numbers for crash reports
 -keepattributes SourceFile,LineNumberTable

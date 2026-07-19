@@ -6,6 +6,7 @@ import '../../providers/bluetooth_provider.dart';
 import '../../providers/ecg_provider.dart';
 import '../../models/ecg_recording_model.dart';
 import '../../widgets/live_ecg_graph_widget.dart';
+import '../../widgets/app_bar_profile_avatar.dart';
 import '../../utils/service_locator.dart';
 import 'device_scanner_screen.dart';
 import 'notifications_screen.dart';
@@ -128,21 +129,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   int _getSecondsFromInput() {
-    final value = int.tryParse(_durationController.text) ?? 5;
+    final value = int.tryParse(_durationController.text) ?? 10;
     switch (_timeUnit) {
       case 'seconds':
-        return value < 15 ? 15 : value; // Minimum 15 seconds
+        return value < 10 ? 10 : value; // Minimum 10 seconds
       case 'minutes':
-        return value * 60;
+        return (value * 60) < 10 ? 10 : value * 60;
       case 'hours':
-        return value * 3600;
+        return (value * 3600) < 10 ? 10 : value * 3600;
       default:
-        return value * 60;
+        return (value * 60) < 10 ? 10 : value * 60;
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    _pastRecordings = storageService.getECGRecordings();
     return Scaffold(
       appBar: AppBar(
         title: const Text('Dashboard'),
@@ -154,6 +156,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Navigator.pushNamed(context, '/ecg_recordings');
             },
           ),
+          const AppBarProfileAvatar(),
         ],
       ),
       body: SingleChildScrollView(
@@ -164,60 +167,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
               builder: (context, btProvider, ecgProvider, _) {
                 return Column(
                   children: [
-                    // Status Bar - Only show when disconnected
-                    if (!btProvider.isConnected)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.15),
-                          border: Border(
-                            bottom: BorderSide(
-                              color: Colors.red.withOpacity(0.3),
-                              width: 1,
-                            ),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.warning_rounded,
-                              color: Colors.red[700],
-                              size: 20,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'No device connected. Power on your HM-10 module, then tap the Bluetooth icon to connect.',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.red[700],
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                            // Quick connect button
-                            TextButton.icon(
-                              onPressed: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (_) => const DeviceScannerScreen()),
-                              ),
-                              icon: const Icon(Icons.bluetooth_searching,
-                                  size: 16, color: Colors.red),
-                              label: Text('Connect',
-                                  style: TextStyle(
-                                      fontSize: 12, color: Colors.red[700])),
-                              style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 4)),
-                            ),
-                          ],
-                        ),
-                      ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                       child: Column(
@@ -261,56 +210,121 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                'Real-Time ECG Monitor',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-            // HM-10 connection badge
-            if (btProvider.isConnected && btProvider.isHM10Device)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF00C853).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                      color:
-                          const Color(0xFF00C853).withValues(alpha: 0.35)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF00C853),
-                        shape: BoxShape.circle,
+        if (btProvider.isConnected) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Left: Live AI State Badge
+              Consumer<ECGProvider>(
+                builder: (context, ecgProv, _) {
+                  final result = ecgProv.latestInferenceResult;
+                  if (result == null || result.isError) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: Colors.blue.withOpacity(0.25)),
                       ),
-                    ),
-                    const SizedBox(width: 5),
-                    const Text(
-                      'HM-10 Serial',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF00C853),
-                        letterSpacing: 0.3,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: const BoxDecoration(
+                              color: Colors.blue,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Text(
+                            'Live AI: Analyzing...',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue,
+                            ),
+                          ),
+                        ],
                       ),
+                    );
+                  }
+
+                  final isAbnormal = result.isAbnormal;
+                  final color = isAbnormal ? Colors.orange[700]! : Colors.green[600]!;
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: color.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: color.withOpacity(0.25)),
                     ),
-                  ],
-                ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: color,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Live AI: ${result.displayLabel}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
-          ],
-        ),
-        const SizedBox(height: 16),
+              // Right: HM-10 Serial Badge
+              if (btProvider.isHM10Device)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF00C853).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                        color:
+                            const Color(0xFF00C853).withValues(alpha: 0.35)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF00C853),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      const Text(
+                        'HM-10 Serial',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF00C853),
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+        ],
         LiveECGGraphWidget(
           ecgData: ecgProvider.ecgData,
           isConnected: btProvider.isConnected,
@@ -338,56 +352,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildAnalyticsSection(BluetoothProvider btProvider, ECGProvider ecgProvider) {
     final hasRealHeartRate = btProvider.isConnected && btProvider.currentHeartRate > 0;
     final heartRateStr = hasRealHeartRate ? '${btProvider.currentHeartRate} BPM' : '--';
-    final bpStr = btProvider.isConnected ? 'N/A' : '--';
-    final oxygenStr = btProvider.isConnected ? 'N/A' : '--';
     final signalQualityStr = btProvider.isConnected 
         ? (ecgProvider.hasDataError ? 'Poor' : 'Good') 
         : '--';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return GridView.count(
+      crossAxisCount: 2,
+      childAspectRatio: 2.0,
+      crossAxisSpacing: 14,
+      mainAxisSpacing: 14,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
       children: [
-        const Text(
-          'Current Health Metrics',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+        _buildMetricCard(
+          'Heart Rate',
+          heartRateStr,
+          Icons.favorite,
+          Colors.red,
         ),
-        const SizedBox(height: 16),
-        GridView.count(
-          crossAxisCount: 2,
-          childAspectRatio: 2.0,
-          crossAxisSpacing: 14,
-          mainAxisSpacing: 14,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          children: [
-            _buildMetricCard(
-              'Heart Rate',
-              heartRateStr,
-              Icons.favorite,
-              Colors.red,
-            ),
-            _buildMetricCard(
-              'Blood Pressure',
-              bpStr,
-              Icons.favorite_outline,
-              Colors.orange,
-            ),
-            _buildMetricCard(
-              'SpO2',
-              oxygenStr,
-              Icons.air,
-              Colors.blue,
-            ),
-            _buildMetricCard(
-              'Signal Quality',
-              signalQualityStr,
-              Icons.signal_cellular_alt,
-              Colors.green,
-            ),
-          ],
+        _buildMetricCard(
+          'Signal Quality',
+          signalQualityStr,
+          Icons.signal_cellular_alt,
+          Colors.green,
         ),
       ],
     );
@@ -487,239 +474,223 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
             const SizedBox(height: 20),
-            // Modern Time Duration Picker
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Theme.of(context).brightness == Brightness.dark
-                    ? AppColors.darkSurface2
-                    : Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: AppColors.primary.withOpacity(0.2),
-                  width: 1,
+
+            if (_isRecording) ...[
+              // Recording Progress (Pulsing card)
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.06),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Colors.red.withOpacity(0.18),
+                    width: 1.5,
+                  ),
                 ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Set Recording Duration',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Theme.of(context).brightness == Brightness.dark
-                          ? AppColors.darkTextSecondary
-                          : Colors.grey[800],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      // Duration Input
-                      Expanded(
-                        flex: 2,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Theme.of(context).brightness == Brightness.dark
-                                  ? AppColors.darkBorder
-                                  : Colors.grey[300]!,
-                              width: 1.5,
-                            ),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: TextField(
-                            controller: _durationController,
-                            keyboardType: TextInputType.number,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(context).brightness == Brightness.dark
-                                  ? AppColors.primaryLight
-                                  : const Color(0xFF2563EB),
-                            ),
-                            decoration: InputDecoration(
-                              border: InputBorder.none,
-                              contentPadding: const EdgeInsets.symmetric(
-                                vertical: 12,
-                              ),
-                              hintText: '5',
-                              hintStyle: TextStyle(
-                                color: Theme.of(context).brightness == Brightness.dark
-                                    ? AppColors.darkTextMuted
-                                    : Colors.grey[400],
-                              ),
-                            ),
-                            onChanged: (value) {
-                              setState(() {
-                                _recordingDuration = _getSecondsFromInput();
-                              });
-                            },
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      // Time Unit Dropdown
-                      Expanded(
-                        flex: 2,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Theme.of(context).brightness == Brightness.dark
-                                  ? AppColors.darkBorder
-                                  : Colors.grey[300]!,
-                              width: 1.5,
-                            ),
-                            borderRadius: BorderRadius.circular(10),
-                            color: Theme.of(context).brightness == Brightness.dark
-                                ? AppColors.darkSurface3
-                                : Colors.grey[50],
-                          ),
-                          child: DropdownButton<String>(
-                            value: _timeUnit,
-                            isExpanded: true,
-                            underline: const SizedBox(),
-                            padding: const EdgeInsets.symmetric(horizontal: 12),
-                            dropdownColor: Theme.of(context).brightness == Brightness.dark
-                                ? AppColors.darkSurface3
-                                : Colors.white,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.primary,
-                            ),
-                            items: ['seconds', 'minutes', 'hours']
-                                .map((unit) => DropdownMenuItem(
-                                      value: unit,
-                                      child: Text(unit),
-                                    ))
-                                .toList(),
-                            onChanged: (value) {
-                              if (value != null) {
-                                setState(() {
-                                  _timeUnit = value;
-                                  _recordingDuration = _getSecondsFromInput();
-                                });
-                              }
-                            },
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      // Display formatted time
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: AppColors.primary.withOpacity(0.3),
-                            width: 1,
-                          ),
-                        ),
-                        child: Text(
-                          _formatDuration(_recordingDuration),
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.primary,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '⚠ Minimum duration: 15 seconds',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.amber[700],
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            // Recording Progress
-            if (_isRecording)
-              Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: Colors.red.withOpacity(0.2),
-                        width: 1,
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Row(
                           children: [
-                            Icon(
-                              Icons.fiber_manual_record,
-                              color: Colors.red,
-                              size: 12,
-                            ),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Recording in progress...',
+                            const _PulsingRecordDot(),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Pulsing Heart Wave Telemetry...',
                               style: TextStyle(
                                 fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.red,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.red[700],
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 10),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(6),
-                          child: LinearProgressIndicator(
-                            value: _recordingProgress / _recordingDuration,
-                            minHeight: 10,
-                            backgroundColor: Colors.red.withOpacity(0.2),
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.red,
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            'LIVE',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.red[700],
+                              letterSpacing: 0.5,
                             ),
                           ),
                         ),
-                        const SizedBox(height: 10),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              _formatDuration(_recordingProgress),
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.red,
-                              ),
-                            ),
-                            Text(
-                              _formatDuration(_recordingDuration),
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
+                      ],
+                    ),
+                    const SizedBox(height: 18),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: _recordingProgress / _recordingDuration,
+                        minHeight: 8,
+                        backgroundColor: Colors.red.withOpacity(0.12),
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.red[700]!),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Elapsed: ${_formatDuration(_recordingProgress)}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red[700],
+                          ),
+                        ),
+                        Text(
+                          'Target: ${_formatDuration(_recordingDuration)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
+                  ],
+                ),
               ),
+              const SizedBox(height: 18),
+            ] else ...[
+              // Duration picker (shown only when NOT recording)
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? AppColors.darkSurface2
+                      : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.primary.withOpacity(0.2),
+                    width: 1,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Set Recording Duration',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? AppColors.darkTextSecondary
+                            : Colors.grey[800],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        // Duration Input
+                        Expanded(
+                          flex: 2,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: Theme.of(context).brightness == Brightness.dark
+                                    ? AppColors.darkBorder
+                                    : Colors.grey[300]!,
+                                width: 1.5,
+                              ),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: TextField(
+                              controller: _durationController,
+                              keyboardType: TextInputType.number,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).brightness == Brightness.dark
+                                    ? AppColors.primaryLight
+                                    : const Color(0xFF2563EB),
+                              ),
+                              decoration: InputDecoration(
+                                border: InputBorder.none,
+                                contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                hintText: '5',
+                                hintStyle: TextStyle(
+                                  color: Theme.of(context).brightness == Brightness.dark
+                                      ? AppColors.darkTextMuted
+                                      : Colors.grey[400],
+                                ),
+                              ),
+                              onChanged: (value) {
+                                setState(() {
+                                  _recordingDuration = _getSecondsFromInput();
+                                });
+                              },
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Time Unit Dropdown
+                        Expanded(
+                          flex: 2,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: Theme.of(context).brightness == Brightness.dark
+                                    ? AppColors.darkBorder
+                                    : Colors.grey[300]!,
+                                width: 1.5,
+                              ),
+                              borderRadius: BorderRadius.circular(10),
+                              color: Theme.of(context).brightness == Brightness.dark
+                                  ? AppColors.darkSurface3
+                                  : Colors.grey[50],
+                            ),
+                            child: DropdownButton<String>(
+                              value: _timeUnit,
+                              isExpanded: true,
+                              underline: const SizedBox(),
+                              padding: const EdgeInsets.symmetric(horizontal: 12),
+                              dropdownColor: Theme.of(context).brightness == Brightness.dark
+                                  ? AppColors.darkSurface3
+                                  : Colors.white,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primary,
+                              ),
+                              items: ['seconds', 'minutes', 'hours']
+                                  .map((unit) => DropdownMenuItem(
+                                        value: unit,
+                                        child: Text(unit),
+                                      ))
+                                  .toList(),
+                              onChanged: (value) {
+                                if (value != null) {
+                                  setState(() {
+                                    _timeUnit = value;
+                                    _recordingDuration = _getSecondsFromInput();
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+            ],
+
+
+
             // Record Button
             SizedBox(
               width: double.infinity,
@@ -727,13 +698,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 onPressed: !btProvider.isConnected
                     ? null
                     : () {
-                        // Validate minimum 15 seconds
+                        // Validate minimum 10 seconds
                         if (!_isRecording &&
-                            _recordingDuration < 15) {
+                            _recordingDuration < 10) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text(
-                                'Recording duration must be at least 15 seconds',
+                                'Recording duration must be at least 10 seconds',
                               ),
                               backgroundColor: Colors.red,
                             ),
@@ -741,20 +712,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           return;
                         }
                         if (_isRecording) {
+                          if (_recordingProgress < 10) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Recording locked: Please wait ${10 - _recordingProgress}s more.',
+                                ),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                            return;
+                          }
                           _stopRecording();
                         } else {
                           _startRecording();
                         }
                       },
                 icon: Icon(
-                  _isRecording ? Icons.stop_circle : Icons.fiber_manual_record,
+                  _isRecording
+                      ? (_recordingProgress < 10
+                          ? Icons.lock_outline
+                          : Icons.stop_circle)
+                      : Icons.fiber_manual_record,
                   size: 22,
                 ),
                 label: Text(
                   !btProvider.isConnected
                       ? 'Connect Device to Record'
                       : _isRecording
-                          ? 'Stop Recording'
+                          ? (_recordingProgress < 10
+                              ? 'Recording Locked (${10 - _recordingProgress}s)'
+                              : 'Stop Recording')
                           : 'Start Recording',
                   style: const TextStyle(
                     fontSize: 16,
@@ -762,8 +750,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      _isRecording ? Colors.red : AppColors.primary,
+                  backgroundColor: _isRecording
+                      ? (_recordingProgress < 10 ? Colors.grey[700] : Colors.red[700])
+                      : AppColors.primary,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
@@ -960,6 +949,57 @@ class _DashboardScreenState extends State<DashboardScreen> {
             },
           ),
       ],
+    );
+  }
+}
+
+class _PulsingRecordDot extends StatefulWidget {
+  const _PulsingRecordDot({Key? key}) : super(key: key);
+
+  @override
+  State<_PulsingRecordDot> createState() => _PulsingRecordDotState();
+}
+
+class _PulsingRecordDotState extends State<_PulsingRecordDot>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.red.withOpacity(0.3 + (_controller.value * 0.7)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.red.withOpacity(0.2 + (_controller.value * 0.4)),
+                blurRadius: 4.0 + (_controller.value * 8.0),
+                spreadRadius: 1.0 + (_controller.value * 3.0),
+              )
+            ],
+          ),
+        );
+      },
     );
   }
 }

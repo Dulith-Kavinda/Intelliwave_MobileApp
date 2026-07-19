@@ -485,7 +485,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildProfileHeroCard(dynamic user) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
@@ -501,113 +500,145 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ),
-      child: Row(
-        children: [
-          // Avatar with upload button
-          Stack(
-            alignment: Alignment.bottomRight,
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withOpacity(0.2),
-                  border: Border.all(color: Colors.white.withOpacity(0.5), width: 2),
-                  image: user.profilePictureUrl != null
-                      ? DecorationImage(
-                          image: NetworkImage(user.profilePictureUrl!),
-                          fit: BoxFit.cover,
-                        )
-                      : null,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: CustomPaint(
+                painter: ProfileHeaderPatternPainter(),
+              ),
+            ),
+            Positioned(
+              right: -25,
+              top: -15,
+              bottom: -15,
+              width: 180,
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: 0.08,
+                  child: Image.asset(
+                    'assets/images/app_logo.png',
+                    color: Colors.white,
+                    colorBlendMode: BlendMode.srcIn,
+                    fit: BoxFit.contain,
+                  ),
                 ),
-                child: user.profilePictureUrl == null
-                    ? Center(
-                        child: Text(
-                          user.name.isNotEmpty
-                              ? user.name[0].toUpperCase()
-                              : '?',
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  // Avatar with upload button
+                  Stack(
+                    alignment: Alignment.bottomRight,
+                    children: [
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white.withOpacity(0.2),
+                          border: Border.all(color: Colors.white.withOpacity(0.5), width: 2),
+                          image: user.profilePictureUrl != null
+                              ? DecorationImage(
+                                  image: NetworkImage(user.profilePictureUrl!),
+                                  fit: BoxFit.cover,
+                                )
+                              : null,
+                        ),
+                        child: user.profilePictureUrl == null
+                            ? Center(
+                                child: Text(
+                                  user.name.isNotEmpty
+                                      ? user.name[0].toUpperCase()
+                                      : '?',
+                                  style: const TextStyle(
+                                    fontSize: 36,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              )
+                            : _isUploadingImage
+                                ? const CircularProgressIndicator(
+                                    color: Colors.white, strokeWidth: 2)
+                                : null,
+                      ),
+                      // Camera button
+                      GestureDetector(
+                        onTap: _isUploadingImage ? null : _pickAndUploadImage,
+                        child: Container(
+                          width: 26,
+                          height: 26,
+                          decoration: BoxDecoration(
+                            color: _isUploadingImage ? AppColors.grey : Colors.white,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: AppColors.primary, width: 1.5),
+                          ),
+                          child: _isUploadingImage
+                              ? const Padding(
+                                  padding: EdgeInsets.all(4),
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: AppColors.primary),
+                                )
+                              : const Icon(Icons.camera_alt,
+                                  size: 14, color: AppColors.primary),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 16),
+                  // Name and email
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          user.name.isEmpty ? 'User' : user.name,
                           style: const TextStyle(
-                            fontSize: 36,
-                            fontWeight: FontWeight.bold,
                             color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
-                      )
-                    : _isUploadingImage
-                        ? const CircularProgressIndicator(
-                            color: Colors.white, strokeWidth: 2)
-                        : null,
-              ),
-              // Camera button
-              GestureDetector(
-                onTap: _isUploadingImage ? null : _pickAndUploadImage,
-                child: Container(
-                  width: 26,
-                  height: 26,
-                  decoration: BoxDecoration(
-                    color: _isUploadingImage ? AppColors.grey : Colors.white,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.primary, width: 1.5),
-                  ),
-                  child: _isUploadingImage
-                      ? const Padding(
-                          padding: EdgeInsets.all(4),
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: AppColors.primary),
-                        )
-                      : const Icon(Icons.camera_alt,
-                          size: 14, color: AppColors.primary),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(width: 16),
-          // Name and email
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  user.name.isEmpty ? 'User' : user.name,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  user.email,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 13,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (user.bloodGroup.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      user.bloodGroup,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
+                        const SizedBox(height: 4),
+                        Text(
+                          user.email,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 13,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (user.bloodGroup.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Container(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              user.bloodGroup,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ],
-              ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -967,4 +998,62 @@ class _SupportTile extends StatelessWidget {
       trailing: const Icon(Icons.chevron_right, color: AppColors.grey),
     );
   }
+}
+
+class ProfileHeaderPatternPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final strokePaint = Paint()
+      ..color = Colors.white.withOpacity(0.12)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+
+    final fillPaint = Paint()
+      ..color = Colors.white.withOpacity(0.04)
+      ..style = PaintingStyle.fill;
+
+    // Draw abstract overlapping circular shapes on the right side
+    canvas.drawCircle(
+      Offset(size.width * 0.95, size.height * 0.1),
+      size.width * 0.45,
+      strokePaint,
+    );
+    canvas.drawCircle(
+      Offset(size.width * 0.95, size.height * 0.1),
+      size.width * 0.45,
+      fillPaint,
+    );
+
+    canvas.drawCircle(
+      Offset(size.width * 0.95, size.height * 0.1),
+      size.width * 0.65,
+      strokePaint,
+    );
+
+    canvas.drawCircle(
+      Offset(size.width * 0.75, size.height * 0.95),
+      size.width * 0.25,
+      strokePaint,
+    );
+
+    // Dynamic wave/curve from bottom-left to bottom-right
+    final path = Path();
+    path.moveTo(0, size.height * 0.8);
+    path.quadraticBezierTo(
+      size.width * 0.35,
+      size.height * 0.6,
+      size.width * 0.7,
+      size.height * 0.9,
+    );
+    path.quadraticBezierTo(
+      size.width * 0.85,
+      size.height * 1.05,
+      size.width,
+      size.height * 0.85,
+    );
+    canvas.drawPath(path, strokePaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

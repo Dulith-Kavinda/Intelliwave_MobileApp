@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
 import '../services/bluetooth_service.dart';
+import '../services/ecg_inference_service.dart';
+import '../models/ecg_inference_result.dart';
+import '../models/notification_model.dart';
+import '../providers/notification_provider.dart';
+import '../utils/service_locator.dart';
 import 'dart:async';
 
 class ECGProvider extends ChangeNotifier {
@@ -20,14 +25,26 @@ class ECGProvider extends ChangeNotifier {
   static const Duration _uiRefreshInterval = Duration(milliseconds: 33);
   Timer? _uiRefreshTimer;
 
-  // Maximum raw samples kept in memory (500 pts @ 100 Hz ≈ 5 seconds)
-  static const int maxDataPoints = 500;
+  // Maximum raw samples kept in memory (5000 pts @ 500 Hz ≈ 10 seconds)
+  static const int maxDataPoints = 5000;
+
+  // ── AI Inference buffer ───────────────────────────────────────────────────
+  // Accumulates incoming ECG integers until a full inference window is ready.
+  // We use a shorter window (500 samples = 1 s @ 500 Hz) for live monitoring
+  // so abnormal conditions are detected and notified within ~1 second.
+  // The full 5000-sample window is used only for saved recordings.
+  static const int _liveInferenceWindow = 500;
+  final List<int> _inferenceBuffer = [];
+  bool _isRunningInference = false;
+  EcgInferenceResult? _latestInferenceResult;
 
   // Direct list access — no allocation overhead from unmodifiable copy
-  List<int> get ecgData      => _ecgData;
-  String?   get errorMessage => _errorMessage;
-  bool      get isConnected  => _isConnected;
-  bool      get hasDataError => _hasDataError;
+  List<int>            get ecgData              => _ecgData;
+  String?              get errorMessage         => _errorMessage;
+  bool                 get isConnected          => _isConnected;
+  bool                 get hasDataError         => _hasDataError;
+  bool                 get isRunningInference   => _isRunningInference;
+  EcgInferenceResult?  get latestInferenceResult => _latestInferenceResult;
 
   ECGProvider(this._bluetoothService) {
     _setupListeners();
@@ -58,8 +75,10 @@ class ECGProvider extends ChangeNotifier {
     _bluetoothService.connectionStatusStream.listen(
       (isConnected) {
         _isConnected = isConnected;
+        _latestInferenceResult = null; // Reset inference result on connection change
         if (!isConnected) {
           _ecgData.clear();
+          _inferenceBuffer.clear();
           _errorMessage  = null;
           _hasDataError  = false;
           _pendingNotify = false;
@@ -80,7 +99,16 @@ class ECGProvider extends ChangeNotifier {
     if (_ecgData.length > maxDataPoints) {
       _ecgData.removeRange(0, _ecgData.length - maxDataPoints);
     }
-
+    // ── Inference buffer: accumulate for auto-monitoring ──────────────────
+    _inferenceBuffer.addAll(data);
+    if (_inferenceBuffer.length >= _liveInferenceWindow) {
+      _inferenceBuffer.clear();
+      // If we have enough history (5000 points = 10s @ 500Hz), run inference
+      if (_ecgData.length >= maxDataPoints) {
+        final window = _ecgData.map((v) => v.toDouble()).toList();
+        _runLiveInference(window);
+      }
+    }
     // Clear error on successful data
     if (_hasDataError) {
       _hasDataError  = false;
@@ -89,6 +117,89 @@ class ECGProvider extends ChangeNotifier {
 
     // Schedule a throttled UI update
     _scheduleNotify();
+  }
+
+  /// Run live inference on a completed window and optionally notify the user.
+  Future<void> _runLiveInference(List<double> window) async {
+    if (_isRunningInference) return; // skip if previous inference still running
+    _isRunningInference = true;
+
+    try {
+      final inferenceService = ecgInferenceService;
+      if (!inferenceService.isModelLoaded) return;
+
+      final result = await inferenceService.runInference(window);
+      _latestInferenceResult = result;
+
+      if (!result.isError) {
+        // Persist result to daily log for summary service
+        storageService.saveInferenceResult(DateTime.now(), result);
+
+        // Fire anomaly notification if:
+        //  • predicted class is non-Normal
+        //  • confidence exceeds the threshold
+        //  • notifications are enabled in settings
+        final threshold = EcgInferenceService.classThresholds[result.label] ?? 0.30;
+        if (result.isAbnormal && result.confidence >= threshold) {
+          // Build condition-specific title and message
+          String alertTitle;
+          String alertMessage;
+          final confPct = (result.confidence * 100).toStringAsFixed(0);
+          switch (result.label) {
+            case 'MI':
+              alertTitle = '🚨 Myocardial Infarction Alert (MI)';
+              alertMessage = 'Possible Myocardial Infarction pattern detected ($confPct% confidence). Seek immediate medical evaluation!';
+              break;
+            case 'STTC':
+              alertTitle = '⚠️ ST/T Change Detected (STTC)';
+              alertMessage = 'Possible ST/T segment change / Ischemia pattern detected ($confPct% confidence). Consult a physician.';
+              break;
+            case 'CD':
+              alertTitle = '⚡ Conduction Disturbance (CD)';
+              alertMessage = 'Possible Conduction Disturbance / Heart block pattern detected ($confPct% confidence). Medical check recommended.';
+              break;
+            case 'HYP':
+              alertTitle = '🫀 Cardiac Hypertrophy (HYP)';
+              alertMessage = 'Possible Ventricular Hypertrophy pattern detected ($confPct% confidence). Consult a cardiologist.';
+              break;
+            default:
+              alertTitle = '⚠️ ECG Anomaly Detected (${result.label})';
+              alertMessage = 'AI detected possible ${result.label} ($confPct% confidence). Please consult a doctor for evaluation.';
+          }
+
+          final notification = AppNotification(
+            id: DateTime.now().millisecondsSinceEpoch.toString(),
+            title: alertTitle,
+            message: alertMessage,
+            timestamp: DateTime.now(),
+            type: 'alert',
+            isRead: false,
+            isImportant: true,
+          );
+
+          // Save in mobile notification page
+          try {
+            getIt<NotificationProvider>().addNotification(notification);
+          } catch (e) {
+            storageService.saveNotification(notification);
+          }
+
+          final notificationsEnabled =
+              storageService.getPreference('notifications_enabled') != 'false';
+          if (notificationsEnabled) {
+            notificationService.showEcgAnomalyAlert(
+              label:      result.label,
+              confidence: result.confidence,
+            );
+          }
+        }
+      }
+
+      // Throttled UI notify so the badge/indicator updates
+      _scheduleNotify();
+    } finally {
+      _isRunningInference = false;
+    }
   }
 
   /// Marks a pending notify and starts the 30 Hz timer if not already running.
@@ -115,6 +226,8 @@ class ECGProvider extends ChangeNotifier {
 
   void clearData() {
     _ecgData.clear();
+    _inferenceBuffer.clear();
+    _latestInferenceResult = null;
     _errorMessage  = null;
     _hasDataError  = false;
     _flushNotify();

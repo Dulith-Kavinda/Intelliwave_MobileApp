@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest_all.dart' as tz_data;
 import 'dart:async';
+import 'dart:typed_data';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -18,36 +20,40 @@ class NotificationService {
   }
 
   Future<void> _initializeNotifications() async {
-    // Initialize timezone data
-    tz_data.initializeTimeZones();
+    try {
+      // Initialize timezone data
+      tz_data.initializeTimeZones();
 
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+      const AndroidInitializationSettings initializationSettingsAndroid =
+          AndroidInitializationSettings('@mipmap/ic_launcher');
 
-    // onDidReceiveLocalNotification was removed in flutter_local_notifications v18
-    const DarwinInitializationSettings initializationSettingsIOS =
-        DarwinInitializationSettings();
+      // onDidReceiveLocalNotification was removed in flutter_local_notifications v18
+      const DarwinInitializationSettings initializationSettingsIOS =
+          DarwinInitializationSettings();
 
-    const InitializationSettings initializationSettings = InitializationSettings(
-      android: initializationSettingsAndroid,
-      iOS: initializationSettingsIOS,
-    );
+      const InitializationSettings initializationSettings = InitializationSettings(
+        android: initializationSettingsAndroid,
+        iOS: initializationSettingsIOS,
+      );
 
-    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+      await flutterLocalNotificationsPlugin.initialize(initializationSettings);
 
-    // Create notification channels for Android
-    const AndroidNotificationChannel channel = AndroidNotificationChannel(
-      'high_importance_channel',
-      'High Importance Notifications',
-      description: 'This channel is used for important health notifications',
-      importance: Importance.high,
-      playSound: true,
-    );
+      // Create notification channels for Android
+      const AndroidNotificationChannel channel = AndroidNotificationChannel(
+        'high_importance_channel',
+        'High Importance Notifications',
+        description: 'This channel is used for important health notifications',
+        importance: Importance.high,
+        playSound: true,
+      );
 
-    await flutterLocalNotificationsPlugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(channel);
+      await flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(channel);
+    } catch (e) {
+      debugPrint('[NotificationService] Failed to initialize notifications: $e');
+    }
   }
 
   Future<void> showNotification({
@@ -56,7 +62,7 @@ class NotificationService {
     required String body,
     String? payload,
   }) async {
-    const AndroidNotificationDetails androidPlatformChannelSpecifics =
+    final AndroidNotificationDetails androidPlatformChannelSpecifics =
         AndroidNotificationDetails(
       'high_importance_channel',
       'High Importance Notifications',
@@ -65,6 +71,8 @@ class NotificationService {
       importance: Importance.high,
       priority: Priority.high,
       showWhen: true,
+      vibrationPattern: Int64List.fromList([0, 1000, 500, 1000, 500, 1000]),
+      enableVibration: true,
     );
 
     const DarwinNotificationDetails iOSPlatformChannelSpecifics =
@@ -168,4 +176,67 @@ class NotificationService {
       payload: 'device_alert',
     );
   }
+
+  /// Show an ECG AI anomaly notification when the model detects a non-normal
+  /// rhythm with confidence above the configured threshold.
+  ///
+  /// Uses a stable notification ID (2001) so repeated alerts replace the
+  /// previous one instead of stacking in the notification tray.
+  Future<void> showEcgAnomalyAlert({
+    required String label,
+    required double confidence,
+  }) async {
+    final confidencePct = (confidence * 100).toStringAsFixed(0);
+
+    String title;
+    String body;
+
+    switch (label) {
+      case 'MI':
+        title = '🚨 Myocardial Infarction Alert (MI)';
+        body = 'Possible Myocardial Infarction pattern detected ($confidencePct% confidence). '
+            'Please seek immediate medical evaluation!';
+        break;
+      case 'STTC':
+        title = '⚠️ ST/T Segment Change (STTC)';
+        body = 'Possible ST/T segment change / Ischemia detected ($confidencePct% confidence). '
+            'Consult your physician for evaluation.';
+        break;
+      case 'CD':
+        title = '⚡ Conduction Disturbance (CD)';
+        body = 'Possible Conduction Disturbance / Heart block pattern detected ($confidencePct% confidence). '
+            'Medical evaluation recommended.';
+        break;
+      case 'HYP':
+        title = '🫀 Cardiac Hypertrophy (HYP)';
+        body = 'Possible Ventricular Hypertrophy pattern detected ($confidencePct% confidence). '
+            'Please consult a cardiologist.';
+        break;
+      default:
+        title = '⚠️ ECG Anomaly Detected';
+        body = 'AI detected possible $label ($confidencePct% confidence). '
+            'Please consult a doctor for confirmation.';
+    }
+
+    await showNotification(
+      id: 2001, // stable ECG-anomaly notification ID
+      title: title,
+      body: body,
+      payload: 'ecg_anomaly',
+    );
+  }
+
+  /// Show the daily AI health summary notification.
+  /// Uses a stable ID (3001) so it replaces itself each day rather than stacking.
+  Future<void> showDailyHealthSummary({
+    required String summaryText,
+  }) async {
+    await showNotification(
+      id: 3001,
+      title: '📊 Your Daily Heart Health Summary',
+      body: summaryText,
+      payload: 'daily_summary',
+    );
+  }
 }
+

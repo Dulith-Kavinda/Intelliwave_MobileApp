@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
 import '../constants/app_theme.dart';
+import '../providers/notification_provider.dart';
 import 'main/index.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -26,7 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 1: return const DeviceScannerScreen();
       case 2: return const HistoryScreen();
       case 3: return const NotificationsScreen();
-      case 4: return const ProfileScreen();
+      case 4: return const AIBotScreen();
       default: return const DashboardScreen();
     }
   }
@@ -49,7 +51,11 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _selectedIndex,
         children: List.generate(
           5,
-          (i) => i <= _selectedIndex ? _getScreen(i) : const SizedBox.shrink(),
+          (i) {
+            if (i > _selectedIndex) return const SizedBox.shrink();
+            if (i == 4) return AIBotScreen(isActive: _selectedIndex == 4);
+            return _getScreen(i);
+          },
         ),
       ),
       bottomNavigationBar: Container(
@@ -62,40 +68,52 @@ class _HomeScreenState extends State<HomeScreen> {
                   top: BorderSide(color: Color(0xFFE5E7EB), width: 1),
                 ),
         ),
-        child: NavigationBar(
-          selectedIndex: _selectedIndex,
-          onDestinationSelected: (i) => setState(() => _selectedIndex = i),
-          backgroundColor: isDark ? AppColors.darkSurface : Colors.white,
-          surfaceTintColor: Colors.transparent,
-          elevation: 0,
-          height: 64,
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.dashboard_outlined),
-              selectedIcon: Icon(Icons.dashboard_rounded),
-              label: 'Dashboard',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.bluetooth_outlined),
-              selectedIcon: Icon(Icons.bluetooth_rounded),
-              label: 'Device',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.history_outlined),
-              selectedIcon: Icon(Icons.history_rounded),
-              label: 'History',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.notifications_outlined),
-              selectedIcon: Icon(Icons.notifications_rounded),
-              label: 'Alerts',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline_rounded),
-              selectedIcon: Icon(Icons.person_rounded),
-              label: 'Profile',
-            ),
-          ],
+        child: Consumer<NotificationProvider>(
+          builder: (context, notificationProvider, _) {
+            return NavigationBar(
+              selectedIndex: _selectedIndex,
+              onDestinationSelected: (i) => setState(() => _selectedIndex = i),
+              backgroundColor: isDark ? AppColors.darkSurface : Colors.white,
+              surfaceTintColor: Colors.transparent,
+              elevation: 0,
+              height: 64,
+              destinations: [
+                const NavigationDestination(
+                  icon: Icon(Icons.dashboard_outlined),
+                  selectedIcon: Icon(Icons.dashboard_rounded),
+                  label: 'Dashboard',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.bluetooth_outlined),
+                  selectedIcon: Icon(Icons.bluetooth_rounded),
+                  label: 'Device',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.history_outlined),
+                  selectedIcon: Icon(Icons.history_rounded),
+                  label: 'History',
+                ),
+                NavigationDestination(
+                  icon: Badge(
+                    isLabelVisible: notificationProvider.unreadCount > 0,
+                    backgroundColor: Colors.red,
+                    child: const Icon(Icons.notifications_outlined),
+                  ),
+                  selectedIcon: Badge(
+                    isLabelVisible: notificationProvider.unreadCount > 0,
+                    backgroundColor: Colors.red,
+                    child: const Icon(Icons.notifications_rounded),
+                  ),
+                  label: 'Alerts',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.chat_outlined),
+                  selectedIcon: Icon(Icons.chat_bubble_rounded),
+                  label: 'Health Service',
+                ),
+              ],
+            );
+          },
         ),
       ),
     );

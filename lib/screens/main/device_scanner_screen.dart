@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../constants/app_theme.dart';
 import '../../providers/bluetooth_provider.dart';
 import '../../models/bluetooth_device_model.dart';
+import '../../widgets/app_bar_profile_avatar.dart';
 
 class DeviceScannerScreen extends StatefulWidget {
   const DeviceScannerScreen({super.key});
@@ -57,7 +58,7 @@ class _DeviceScannerScreenState extends State<DeviceScannerScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
-              'Please turn on Bluetooth to scan for your HM-10 device.',
+              'Please turn on Bluetooth to scan for your ECG device.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 14, height: 1.4),
             ),
@@ -124,11 +125,13 @@ class _DeviceScannerScreenState extends State<DeviceScannerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Connect Device'),
         elevation: 0,
+        actions: const [
+          AppBarProfileAvatar(),
+        ],
       ),
       body: Consumer<BluetoothProvider>(
         builder: (context, btProvider, _) {
@@ -142,89 +145,22 @@ class _DeviceScannerScreenState extends State<DeviceScannerScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── HM-10 only info banner ─────────────────────────────────────
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: AppColors.primary.withValues(alpha: 0.18),
-                  ),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(Icons.info_outline,
-                        size: 16, color: AppColors.primary),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: RichText(
-                        text: TextSpan(
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.45,
-                            color: isDark
-                                ? AppColors.primaryLight
-                                : AppColors.primaryDark,
-                          ),
-                          children: const [
-                            TextSpan(
-                              text: 'Only HM-10 modules are shown. ',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            TextSpan(
-                              text:
-                                  'Earbuds, phones, and other devices are automatically hidden. '
-                                  'Power on your HM-10 — it will appear as ',
-                            ),
-                            TextSpan(
-                              text: '"HMSoft"',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            TextSpan(text: ' or your custom name below.'),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // ── Setup guide (collapsible) ──────────────────────────────────
-              const _HM10SetupGuide(),
-
               // ── Header row ─────────────────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'HM-10 Devices',
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          btProvider.isScanning
-                              ? 'Scanning for HM-10 modules...'
-                              : '${btProvider.availableDevices.length} device(s) found',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: isDark
-                                        ? AppColors.darkTextMuted
-                                        : Colors.grey[500],
-                                  ),
-                        ),
-                      ],
+                    Expanded(
+                      child: Text(
+                        btProvider.isScanning
+                            ? 'Scanning for devices...'
+                            : '${btProvider.availableDevices.length} device(s) found',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
                     ),
                     if (btProvider.isScanning)
                       const SizedBox(
@@ -271,9 +207,7 @@ class _DeviceScannerScreenState extends State<DeviceScannerScreen> {
                   ),
                 ),
 
-              // ── Raw data debug panel (shown when HM-10 is connected) ───────
-              if (btProvider.isConnected && btProvider.isHM10Device)
-                _HM10DebugPanel(rawDataLog: btProvider.rawDataLog),
+
 
               // ── Device list ────────────────────────────────────────────────
               Expanded(
@@ -327,7 +261,7 @@ class _DeviceScannerScreenState extends State<DeviceScannerScreen> {
             Text(
               btProvider.isScanning
                   ? 'Scanning...'
-                  : 'No HM-10 Found',
+                  : 'No ECG Device Found',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -335,8 +269,8 @@ class _DeviceScannerScreenState extends State<DeviceScannerScreen> {
             const SizedBox(height: 8),
             Text(
               btProvider.isScanning
-                  ? 'Looking for nearby HM-10 / UART BLE modules.'
-                  : 'Make sure your HM-10 is powered on, its LED is blinking, and it\'s not already connected to another device.',
+                  ? 'Looking for nearby ECG devices.'
+                  : 'Make sure your ECG device is powered on, its LED is blinking, and it\'s not already connected to another device.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color:
                         isDark ? AppColors.darkTextMuted : Colors.grey[500],
@@ -355,6 +289,8 @@ class _DeviceScannerScreenState extends State<DeviceScannerScreen> {
       ),
     );
   }
+
+
 }
 
 // ─── Step row helper ─────────────────────────────────────────────────────────
@@ -398,229 +334,7 @@ class _StepRow extends StatelessWidget {
   }
 }
 
-// ─── HM-10 Setup Guide (collapsible) ─────────────────────────────────────────
-class _HM10SetupGuide extends StatefulWidget {
-  const _HM10SetupGuide();
 
-  @override
-  State<_HM10SetupGuide> createState() => _HM10SetupGuideState();
-}
-
-class _HM10SetupGuideState extends State<_HM10SetupGuide> {
-  bool _expanded = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      decoration: BoxDecoration(
-        color: isDark
-            ? const Color(0xFF1A1A2A)
-            : const Color(0xFFF5F5FF),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: AppColors.primary.withValues(alpha: 0.20),
-        ),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            onTap: () => setState(() => _expanded = !_expanded),
-            borderRadius: BorderRadius.circular(10),
-            child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-              child: Row(
-                children: [
-                  Icon(Icons.help_outline_rounded,
-                      size: 15, color: AppColors.primary),
-                  const SizedBox(width: 7),
-                  Text(
-                    'How to make your HM-10 appear here',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                  const Spacer(),
-                  Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
-                    size: 16,
-                    color: AppColors.primary,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_expanded)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Divider(height: 1),
-                  const SizedBox(height: 10),
-                  _guideRow(Icons.power_settings_new_rounded,
-                      'Power on your HM-10 module (connect to 3.3V and GND)'),
-                  _guideRow(Icons.lightbulb_outline_rounded,
-                      'The LED should blink rapidly — this means it\'s advertising and waiting to connect'),
-                  _guideRow(Icons.phone_android_rounded,
-                      'Make sure your phone\'s Bluetooth is ON'),
-                  _guideRow(Icons.bluetooth_connected_rounded,
-                      'Make sure the HM-10 is not already connected to another phone or device'),
-                  _guideRow(Icons.wifi_tethering_error_rounded,
-                      'Keep your phone within 5–10 metres of the module'),
-                  _guideRow(Icons.text_fields_rounded,
-                      'The module appears as "HMSoft", "MLT-BT05", "JDY-08" or your custom AT+NAME'),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                          color: Colors.amber.withValues(alpha: 0.30)),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Icon(Icons.tips_and_updates_rounded,
-                            size: 14, color: Colors.amber),
-                        SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            'Only HM-10 compatible UART-BLE modules appear here. '
-                            'Earbuds, phones, and other Bluetooth devices are automatically filtered out.',
-                            style:
-                                TextStyle(fontSize: 11, height: 1.4),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _guideRow(IconData icon, String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 14, color: AppColors.primary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(text,
-                style: const TextStyle(fontSize: 12, height: 1.35)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── HM-10 raw data debug panel ──────────────────────────────────────────────
-class _HM10DebugPanel extends StatefulWidget {
-  final List<List<int>> rawDataLog;
-  const _HM10DebugPanel({required this.rawDataLog});
-
-  @override
-  State<_HM10DebugPanel> createState() => _HM10DebugPanelState();
-}
-
-class _HM10DebugPanelState extends State<_HM10DebugPanel> {
-  bool _expanded = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      decoration: BoxDecoration(
-        color: isDark
-            ? const Color(0xFF1A2A1A)
-            : const Color(0xFFF0FFF0),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: AppColors.success.withValues(alpha: 0.3),
-        ),
-      ),
-      child: Column(
-        children: [
-          InkWell(
-            onTap: () => setState(() => _expanded = !_expanded),
-            borderRadius: BorderRadius.circular(10),
-            child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Row(
-                children: [
-                  Icon(Icons.cable_rounded,
-                      size: 14, color: AppColors.success),
-                  const SizedBox(width: 6),
-                  Text(
-                    'HM-10 Serial — ${widget.rawDataLog.length} packet(s) received',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.success,
-                    ),
-                  ),
-                  const Spacer(),
-                  Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
-                    size: 16,
-                    color: AppColors.success,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_expanded && widget.rawDataLog.isNotEmpty)
-            Container(
-              height: 120,
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: ListView.builder(
-                itemCount: widget.rawDataLog.length,
-                reverse: true,
-                itemBuilder: (context, index) {
-                  final realIndex = widget.rawDataLog.length - 1 - index;
-                  final bytes = widget.rawDataLog[realIndex];
-                  final hex = bytes
-                      .map((b) => b.toRadixString(16).padLeft(2, '0'))
-                      .join(' ');
-                  final asText = String.fromCharCodes(
-                      bytes.where((b) => b >= 32 && b < 127));
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 2),
-                    child: Text(
-                      '[$realIndex] $hex  →  "$asText"',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontFamily: 'monospace',
-                        color: isDark
-                            ? Colors.green[300]
-                            : Colors.green[800],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
 
 // ─── Device card ──────────────────────────────────────────────────────────────
 class _DeviceCard extends StatelessWidget {
@@ -651,17 +365,19 @@ class _DeviceCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final signalColor = _signalColor(device.signalStrength);
+    final btProvider = context.watch<BluetoothProvider>();
+    final isConnected = btProvider.connectedDevice?.id == device.id;
 
     return Container(
       decoration: BoxDecoration(
-        color: device.isConnected
+        color: isConnected
             ? _hm10Green.withValues(alpha: 0.06)
             : isDark
                 ? AppColors.darkSurface
                 : Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: device.isConnected
+          color: isConnected
               ? _hm10Green.withValues(alpha: 0.35)
               : _hm10Green.withValues(alpha: 0.25),
           width: 1.4,
@@ -714,29 +430,8 @@ class _DeviceCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      // HM-10 badge
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 7, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: _hm10Green.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                              color: _hm10Green.withValues(alpha: 0.3)),
-                        ),
-                        child: const Text(
-                          'HM-10',
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                            color: _hm10Green,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ),
                       // Connected badge
-                      if (device.isConnected) ...[
+                      if (isConnected) ...[
                         const SizedBox(width: 5),
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -801,15 +496,6 @@ class _DeviceCard extends StatelessWidget {
                           fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'UART BLE',
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: _hm10Green.withValues(alpha: 0.8),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
                     ],
                   ),
                 ],
@@ -818,48 +504,44 @@ class _DeviceCard extends StatelessWidget {
             const SizedBox(width: 10),
 
             // Action button
-            Consumer<BluetoothProvider>(
-              builder: (context, btProvider, _) {
-                if (device.isConnected) {
-                  return OutlinedButton(
-                    onPressed: () => btProvider.disconnectDevice(),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppColors.danger,
-                      side: BorderSide(
-                          color:
-                              AppColors.danger.withValues(alpha: 0.4)),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: const Text('Disconnect',
+            if (isConnected)
+              OutlinedButton(
+                onPressed: () => btProvider.disconnectDevice(),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.danger,
+                  side: BorderSide(
+                      color:
+                          AppColors.danger.withValues(alpha: 0.4)),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text('Disconnect',
+                    style: TextStyle(fontSize: 12)),
+              )
+            else
+              ElevatedButton(
+                onPressed: btProvider.isConnecting
+                    ? null
+                    : () => btProvider.connectToDevice(device),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 8),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: btProvider.isConnecting
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white),
+                      )
+                    : const Text('Connect',
                         style: TextStyle(fontSize: 12)),
-                  );
-                }
-                return ElevatedButton(
-                  onPressed: btProvider.isConnecting
-                      ? null
-                      : () => btProvider.connectToDevice(device),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: btProvider.isConnecting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white),
-                        )
-                      : const Text('Connect',
-                          style: TextStyle(fontSize: 12)),
-                );
-              },
-            ),
+              ),
           ],
         ),
       ),

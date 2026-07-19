@@ -46,25 +46,34 @@ class ImageUploadService {
     required File imageFile,
   }) async {
     try {
-      final fileName = 'profile_$userId.jpg';
-      final filePath = 'profile_pictures/$fileName';
-
-      // Delete old image if exists
+      // 1. Delete all existing images in the user's directory to avoid clutter
       try {
-        await _supabase.storage
+        final existingFiles = await _supabase.storage
             .from('profile_pictures')
-            .remove([fileName]);
-      } catch (e) {
-        // File might not exist, ignore
+            .list(path: userId);
+        
+        if (existingFiles.isNotEmpty) {
+          final pathsToDelete = existingFiles
+              .map((file) => '$userId/${file.name}')
+              .toList();
+          await _supabase.storage
+              .from('profile_pictures')
+              .remove(pathsToDelete);
+        }
+      } catch (_) {
+        // Ignore listing/deletion errors and proceed with upload
       }
 
-      // Upload new image
+      // 2. Upload new image with a unique timestamped filename to bypass caching
+      final fileName = 'profile_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final filePath = '$userId/$fileName';
+
       await _supabase.storage
           .from('profile_pictures')
           .upload(
             filePath,
             imageFile,
-            fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
+            fileOptions: const FileOptions(cacheControl: '0', upsert: true),
           );
 
       // Get public URL
@@ -81,10 +90,18 @@ class ImageUploadService {
   /// Delete profile image
   Future<void> deleteProfileImage(String userId) async {
     try {
-      final fileName = 'profile_$userId.jpg';
-      await _supabase.storage
+      final existingFiles = await _supabase.storage
           .from('profile_pictures')
-          .remove([fileName]);
+          .list(path: userId);
+      
+      if (existingFiles.isNotEmpty) {
+        final pathsToDelete = existingFiles
+            .map((file) => '$userId/${file.name}')
+            .toList();
+        await _supabase.storage
+            .from('profile_pictures')
+            .remove(pathsToDelete);
+      }
     } catch (e) {
       throw Exception('Failed to delete image: $e');
     }

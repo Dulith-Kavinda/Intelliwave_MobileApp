@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/user_model.dart';
 import '../models/heartbeat_data.dart';
@@ -6,6 +7,7 @@ import '../models/bluetooth_device_model.dart';
 import '../models/notification_model.dart';
 import '../models/timed_check_session.dart';
 import '../models/ecg_recording_model.dart';
+import '../models/ecg_inference_result.dart';
 
 class StorageService {
   static const String usersBoxName = 'users';
@@ -25,20 +27,34 @@ class StorageService {
   Future<void> initialize() async {
     await Hive.initFlutter();
 
-    // Register adapters
-    Hive.registerAdapter(UserModelAdapter());
-    Hive.registerAdapter(HeartbeatDataAdapter());
-    Hive.registerAdapter(BluetoothDeviceModelAdapter());
-    Hive.registerAdapter(AppNotificationAdapter());
-    Hive.registerAdapter(TimedCheckSessionAdapter());
+    // Register adapters safely without throwing if already registered
+    if (!Hive.isAdapterRegistered(0)) Hive.registerAdapter(UserModelAdapter());
+    if (!Hive.isAdapterRegistered(1)) Hive.registerAdapter(HeartbeatDataAdapter());
+    if (!Hive.isAdapterRegistered(2)) Hive.registerAdapter(BluetoothDeviceModelAdapter());
+    if (!Hive.isAdapterRegistered(3)) Hive.registerAdapter(AppNotificationAdapter());
+    if (!Hive.isAdapterRegistered(4)) Hive.registerAdapter(TimedCheckSessionAdapter());
 
-    // Open boxes
-    _usersBox = await Hive.openBox<UserModel>(usersBoxName);
-    _heartbeatBox = await Hive.openBox<HeartbeatData>(heartbeatBoxName);
-    _devicesBox = await Hive.openBox<BluetoothDeviceModel>(devicesBoxName);
-    _notificationsBox = await Hive.openBox<AppNotification>(notificationsBoxName);
-    _sessionsBox = await Hive.openBox<TimedCheckSession>(sessionsBoxName);
-    _preferencesBox = await Hive.openBox<String>(preferencesBoxName);
+    // Open boxes with recovery fallback for corrupted/locked files on mobile
+    _usersBox = await _openBoxSafely<UserModel>(usersBoxName);
+    _heartbeatBox = await _openBoxSafely<HeartbeatData>(heartbeatBoxName);
+    _devicesBox = await _openBoxSafely<BluetoothDeviceModel>(devicesBoxName);
+    _notificationsBox = await _openBoxSafely<AppNotification>(notificationsBoxName);
+    _sessionsBox = await _openBoxSafely<TimedCheckSession>(sessionsBoxName);
+    _preferencesBox = await _openBoxSafely<String>(preferencesBoxName);
+  }
+
+  Future<Box<T>> _openBoxSafely<T>(String boxName) async {
+    try {
+      return await Hive.openBox<T>(boxName);
+    } catch (e) {
+      debugPrint('[StorageService] Error opening Hive box "$boxName": $e. Deleting and recreating box.');
+      try {
+        await Hive.deleteBoxFromDisk(boxName);
+      } catch (delErr) {
+        debugPrint('[StorageService] Error deleting Hive box "$boxName": $delErr');
+      }
+      return await Hive.openBox<T>(boxName);
+    }
   }
 
   // User operations
@@ -199,6 +215,90 @@ class StorageService {
     list.insert(0, recording);
     final encoded = jsonEncode(list.map((r) => r.toJson()).toList());
     await _preferencesBox.put('ecg_recordings', encoded);
+  }
+
+  Future<void> deleteECGRecording(String id) async {
+    final list = getECGRecordings();
+    list.removeWhere((r) => r.id == id);
+    final encoded = jsonEncode(list.map((r) => r.toJson()).toList());
+    await _preferencesBox.put('ecg_recordings', encoded);
+  }
+
+  // ── AI Inference result log ──────────────────────────────────────────────
+
+  /// Persist a single inference result to the day's log.
+  Future<void> saveInferenceResult(DateTime timestamp, EcgInferenceResult result) async {
+    if (result.isError) return;
+    final existing = _getRawInferenceResults();
+    existing.add({
+      'timestamp': timestamp.toIso8601String(),
+      'label': result.label,
+      'confidence': result.confidence,
+      'labelIndex': result.labelIndex,
+      'isAbnormal': result.isAbnormal,
+    });
+    // Keep only last 200 results to prevent unbounded growth
+    final trimmed = existing.length > 200
+        ? existing.sublist(existing.length - 200)
+        : existing;
+    await _preferencesBox.put('inference_log', jsonEncode(trimmed));
+  }
+
+  List<Map<String, dynamic>> _getRawInferenceResults() {
+    final raw = _preferencesBox.get('inference_log');
+    if (raw == null) return [];
+    try {
+      return List<Map<String, dynamic>>.from(
+        (jsonDecode(raw) as List).map((e) => Map<String, dynamic>.from(e)),
+      );
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Retrieve all inference results recorded today.
+  List<Map<String, dynamic>> getTodayInferenceResults() {
+    final today = DateTime.now();
+    return _getRawInferenceResults().where((r) {
+      try {
+        final ts = DateTime.parse(r['timestamp'] as String);
+        return ts.year == today.year &&
+            ts.month == today.month &&
+            ts.day == today.day;
+      } catch (_) {
+        return false;
+      }
+    }).toList();
+  }
+
+  // ── Chat History operations ───────────────────────────────────────────────
+
+  /// Retrieve all saved AI chat sessions.
+  List<Map<String, dynamic>> getSavedChats() {
+    final rawJson = _preferencesBox.get('ai_chat_history');
+    if (rawJson == null) return [];
+    try {
+      final List<dynamic> decoded = jsonDecode(rawJson);
+      return decoded.map((item) => Map<String, dynamic>.from(item)).toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /// Save the updated list of chat sessions.
+  Future<void> saveChats(List<Map<String, dynamic>> chats) async {
+    final encoded = jsonEncode(chats);
+    await _preferencesBox.put('ai_chat_history', encoded);
+  }
+
+  // ── Daily summary tracking ───────────────────────────────────────────────
+
+  String? getLastDailySummaryDate() {
+    return _preferencesBox.get('last_daily_summary_date');
+  }
+
+  Future<void> setLastDailySummaryDate(String dateStr) async {
+    await _preferencesBox.put('last_daily_summary_date', dateStr);
   }
 
   Future<void> clearAllData() async {

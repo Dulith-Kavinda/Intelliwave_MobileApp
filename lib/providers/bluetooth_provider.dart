@@ -28,7 +28,14 @@ class BluetoothProvider extends ChangeNotifier {
 
   bool   get isScanning      => _isScanning;
   bool   get isBluetoothOff  => _isBluetoothOff;
-  List<BluetoothDeviceModel> get availableDevices => _availableDevices;
+  List<BluetoothDeviceModel> get availableDevices {
+    final list = List<BluetoothDeviceModel>.from(_availableDevices);
+    if (_connectedDevice != null) {
+      list.removeWhere((d) => d.id == _connectedDevice!.id);
+      list.insert(0, _connectedDevice!);
+    }
+    return list;
+  }
   BluetoothDeviceModel? get connectedDevice       => _connectedDevice;
   bool   get isConnected     => _connectedDevice != null;
   bool   get isConnecting    => _isConnecting;
@@ -36,6 +43,7 @@ class BluetoothProvider extends ChangeNotifier {
   int    get currentHeartRate => _currentHeartRate;
   bool   get isHM10Device    => _bluetoothService.isHM10Device;
   List<List<int>> get rawDataLog => List.unmodifiable(_rawDataLog);
+
 
   BluetoothProvider(this._bluetoothService) {
     _setupListeners();
@@ -74,6 +82,18 @@ class BluetoothProvider extends ChangeNotifier {
         _rawLogPendingNotify = false;
         _rawLogTimer?.cancel();
         _rawLogTimer = null;
+      } else if (_connectedDevice == null) {
+        _connectedDevice = _bluetoothService.currentDevice ??
+            BluetoothDeviceModel(
+              id: 'unknown',
+              name: 'Heart Monitor',
+              macAddress: '00:00:00:00:00:00',
+              isConnected: true,
+              lastConnected: DateTime.now(),
+              signalStrength: -50,
+              deviceType: 'hm10',
+              isSaved: false,
+            );
       }
       notifyListeners();
     });

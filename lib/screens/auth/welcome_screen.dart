@@ -172,11 +172,15 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                                   ),
                                 ],
                               ),
-                              child: const Center(
-                                child: Icon(
-                                  Icons.monitor_heart,
-                                  size: 64,
-                                  color: Colors.white,
+                              child: Center(
+                                child: ClipOval(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16.0),
+                                    child: Image.asset(
+                                      'assets/images/app_logo.png',
+                                      fit: BoxFit.contain,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),

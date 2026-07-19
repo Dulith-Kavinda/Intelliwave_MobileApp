@@ -1,4 +1,5 @@
 import 'package:share_plus/share_plus.dart';
+import 'package:flutter/services.dart';
 import '../models/heartbeat_data.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -62,6 +63,10 @@ This data was recorded using IntelIWave heart rate monitoring app.
     try {
       final pdf = pw.Document();
 
+      // Load logo image
+      final logoData = await rootBundle.load('assets/images/app_logo.png');
+      final logoImage = pw.MemoryImage(logoData.buffer.asUint8List());
+
       pdf.addPage(
         pw.Page(
           pageFormat: PdfPageFormat.a4,
@@ -69,12 +74,19 @@ This data was recorded using IntelIWave heart rate monitoring app.
             return pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                pw.Text(
-                  'IntelIWave Heart Rate Report',
-                  style: pw.TextStyle(
-                    fontSize: 24,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
+                pw.Row(
+                  crossAxisAlignment: pw.CrossAxisAlignment.center,
+                  children: [
+                    pw.Image(logoImage, width: 32, height: 32),
+                    pw.SizedBox(width: 8),
+                    pw.Text(
+                      'IntelIWave Heart Rate Report',
+                      style: pw.TextStyle(
+                        fontSize: 24,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ),
                 pw.SizedBox(height: 20),
                 pw.Text(
@@ -101,6 +113,104 @@ This data was recorded using IntelIWave heart rate monitoring app.
                 pw.Text('Recording Time: ${data.timestamp.toString()}'),
                 pw.Text('Device ID: ${data.deviceId}'),
                 pw.SizedBox(height: 20),
+                if (data.ecgData.isNotEmpty) ...[
+                  pw.Text(
+                    'ECG Waveform',
+                    style: pw.TextStyle(
+                      fontSize: 16,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.SizedBox(height: 8),
+                  () {
+                    final rawSamples = data.ecgData.map((e) => e.toDouble()).toList();
+                    final sum = rawSamples.reduce((a, b) => a + b);
+                    final mean = sum / rawSamples.length;
+                    final samples = rawSamples.map((v) => v - mean).toList();
+
+                    double maxAbs = 200.0;
+                    for (final v in samples) {
+                      final a = v.abs();
+                      if (a > maxAbs) maxAbs = a;
+                    }
+                    maxAbs *= 1.15;
+                    final minY = -maxAbs;
+                    final maxY = maxAbs;
+
+                    double normalizeForPdf(double val) {
+                      final norm = ((val - minY) / (maxY - minY)).clamp(0.0, 1.0);
+                      return norm * 100.0;
+                    }
+
+                    return pw.Container(
+                      height: 100,
+                      width: 530,
+                      decoration: pw.BoxDecoration(
+                        color: PdfColors.white,
+                        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                        border: pw.Border.all(
+                          color: PdfColor.fromInt(0xFFEF9A9A),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: pw.CustomPaint(
+                        size: const PdfPoint(530, 100),
+                        painter: (PdfGraphics canvas, PdfPoint sz) {
+                          // Minor red grid (1 mm = 1 small square = 0.04s)
+                          final smallPx = 1.0 * PdfPageFormat.mm;
+                          canvas.setStrokeColor(PdfColor.fromInt(0xFFFFCDD2));
+                          canvas.setLineWidth(0.35);
+                          for (double x = 0; x <= sz.x; x += smallPx) {
+                            canvas.moveTo(x, 0);
+                            canvas.lineTo(x, sz.y);
+                            canvas.strokePath();
+                          }
+                          for (double y = 0; y <= sz.y; y += smallPx) {
+                            canvas.moveTo(0, y);
+                            canvas.lineTo(sz.x, y);
+                            canvas.strokePath();
+                          }
+
+                          // Major red grid (5 mm = 1 large square = 0.20s)
+                          final bigPx = 5.0 * PdfPageFormat.mm;
+                          canvas.setStrokeColor(PdfColor.fromInt(0xFFEF9A9A));
+                          canvas.setLineWidth(0.75);
+                          for (double x = 0; x <= sz.x; x += bigPx) {
+                            canvas.moveTo(x, 0);
+                            canvas.lineTo(x, sz.y);
+                            canvas.strokePath();
+                          }
+                          for (double y = 0; y <= sz.y; y += bigPx) {
+                            canvas.moveTo(0, y);
+                            canvas.lineTo(sz.x, y);
+                            canvas.strokePath();
+                          }
+
+                          // Baseline Y=0
+                          final baselineY = normalizeForPdf(0);
+                          canvas.setStrokeColor(PdfColor.fromInt(0xFFE57373));
+                          canvas.setLineWidth(0.9);
+                          canvas.moveTo(0, baselineY);
+                          canvas.lineTo(sz.x, baselineY);
+                          canvas.strokePath();
+
+                          // ECG waveform line (Dark Crimson Red)
+                          if (samples.isNotEmpty) {
+                            canvas.setStrokeColor(PdfColor.fromInt(0xFFB71C1C));
+                            canvas.setLineWidth(1.3);
+                            final step = (25.0 * PdfPageFormat.mm) / 250.0;
+                            canvas.moveTo(0, normalizeForPdf(samples[0]));
+                            for (int i = 1; i < samples.length; i++) {
+                              canvas.lineTo(i * step, normalizeForPdf(samples[i]));
+                            }
+                            canvas.strokePath();
+                          }
+                        },
+                      ),
+                    );
+                  }(),
+                  pw.SizedBox(height: 15),
+                ],
                 pw.Divider(),
                 pw.SizedBox(height: 20),
                 pw.Text(

@@ -460,28 +460,26 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                             height: 80,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              gradient: const LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  AppColors.primary,
-                                  Color(0xFF8B5CF6),
-                                ],
-                              ),
+                              gradient: null,
+                              color: Colors.white,
                               boxShadow: [
                                 BoxShadow(
-                                  color: AppColors.primary.withValues(alpha: 0.4),
+                                  color: AppColors.primary.withValues(alpha: 0.25),
                                   blurRadius: 20,
                                   spreadRadius: 2,
                                   offset: const Offset(0, 8),
                                 ),
                               ],
                             ),
-                            child: const Center(
-                              child: Icon(
-                                Icons.monitor_heart,
-                                color: Colors.white,
-                                size: 40,
+                            child: Center(
+                              child: ClipOval(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(10.0),
+                                  child: Image.asset(
+                                    'assets/images/app_logo.png',
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -733,25 +731,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     children: [
                       _buildSocialButton(
                         onPressed: _isLoading ? null : _handleGoogleLogin,
-                        logo: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(2),
-                              child: const Text(
-                                'G',
-                                style: TextStyle(
-                                  fontFamily: 'Roboto',
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w900,
-                                  color: Color(0xFF4285F4),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                        logo: const GoogleLogo(size: 20),
                         isDarkMode: isDarkMode,
                       ),
                       const SizedBox(width: 16),
@@ -767,10 +747,20 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       const SizedBox(width: 16),
                       _buildSocialButton(
                         onPressed: _isLoading ? null : _handleFacebookLogin,
-                        logo: const Icon(
-                          Icons.facebook,
-                          size: 26,
-                          color: Color(0xFF1877F2),
+                        logo: Container(
+                          width: 26,
+                          height: 26,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Color(0xFF1877F2),
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.facebook,
+                              size: 26,
+                              color: Colors.white,
+                            ),
+                          ),
                         ),
                         isDarkMode: isDarkMode,
                       ),
@@ -918,4 +908,86 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       }, // Consumer builder
     ); // Consumer
   }
+}
+
+class GoogleLogo extends StatelessWidget {
+  final double size;
+
+  const GoogleLogo({super.key, this.size = 24});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _GoogleLogoPainter(),
+      ),
+    );
+  }
+}
+
+class _GoogleLogoPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double s = size.width;
+    final Paint paint = Paint()..isAntiAlias = true;
+
+    // Shift by 0.05 and scale by 0.9 to stay within bounds
+    double x(double val) => (0.05 + 0.9 * val) * s;
+    double y(double val) => (0.05 + 0.9 * val) * s;
+
+    // Draw Blue part (right side and bar)
+    paint.color = const Color(0xFF4285F4);
+    final Path bluePath = Path()
+      ..moveTo(x(0.98), y(0.52))
+      ..cubicTo(x(0.98), y(0.47), x(0.97), y(0.41), x(0.96), y(0.36))
+      ..lineTo(x(0.50), y(0.36))
+      ..lineTo(x(0.50), y(0.64))
+      ..lineTo(x(0.77), y(0.64))
+      ..cubicTo(x(0.76), y(0.71), x(0.71), y(0.79), x(0.64), y(0.84))
+      ..lineTo(x(0.64), y(0.84))
+      ..lineTo(x(0.78), y(0.95))
+      ..cubicTo(x(0.90), y(0.84), x(0.98), y(0.68), x(0.98), y(0.52));
+    canvas.drawPath(bluePath, paint);
+
+    // Draw Green part (bottom)
+    paint.color = const Color(0xFF34A853);
+    final Path greenPath = Path()
+      ..moveTo(x(0.64), y(0.84))
+      ..cubicTo(x(0.60), y(0.87), x(0.55), y(0.89), x(0.50), y(0.89))
+      ..cubicTo(x(0.38), y(0.89), x(0.28), y(0.81), x(0.24), y(0.70))
+      ..lineTo(x(0.10), y(0.81))
+      ..cubicTo(x(0.18), y(0.97), x(0.33), y(1.00), x(0.50), y(1.00))
+      ..cubicTo(x(0.64), y(1.00), x(0.72), y(0.96), x(0.78), y(0.95))
+      ..lineTo(x(0.64), y(0.84));
+    canvas.drawPath(greenPath, paint);
+
+    // Draw Yellow part (left)
+    paint.color = const Color(0xFFFBBC05);
+    final Path yellowPath = Path()
+      ..moveTo(x(0.24), y(0.70))
+      ..cubicTo(x(0.22), y(0.64), x(0.21), y(0.58), x(0.21), y(0.50))
+      ..cubicTo(x(0.21), y(0.42), x(0.22), y(0.36), x(0.24), y(0.30))
+      ..lineTo(x(0.10), y(0.19))
+      ..cubicTo(x(0.04), y(0.29), x(0.00), y(0.39), x(0.00), y(0.50))
+      ..cubicTo(x(0.00), y(0.61), x(0.04), y(0.71), x(0.10), y(0.81))
+      ..lineTo(x(0.24), y(0.70));
+    canvas.drawPath(yellowPath, paint);
+
+    // Draw Red part (top)
+    paint.color = const Color(0xFFEA4335);
+    final Path redPath = Path()
+      ..moveTo(x(0.24), y(0.30))
+      ..cubicTo(x(0.28), y(0.19), x(0.38), y(0.11), x(0.50), y(0.11))
+      ..cubicTo(x(0.62), y(0.11), x(0.72), y(0.16), x(0.79), y(0.24))
+      ..lineTo(x(0.93), y(0.10))
+      ..cubicTo(x(0.82), y(0.00), x(0.67), y(-0.05), x(0.50), y(-0.05))
+      ..cubicTo(x(0.33), y(-0.05), x(0.18), y(0.03), x(0.10), y(0.19))
+      ..lineTo(x(0.24), y(0.30));
+    canvas.drawPath(redPath, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
